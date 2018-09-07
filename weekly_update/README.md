@@ -4,10 +4,11 @@ This document contains the weekly updates on the incremental machine translation
 
 ### Sept 5, 2018 - Sept 12, 2018
 
-```
-Member | Tasks 
------- | ---------------
-Ying | .
-Zhun | . 
-Kangyan | .
-```
+| Member  | Upcoming Tasks |
+| ------- | -------------- |
+| Ying    |                |
+| Zhun    |                |
+| Kangyan |                |
+
+
+
