@@ -19,5 +19,15 @@ This document contains the weekly updates on the incremental machine translation
 | Zhun    | Searching for spoken language translation datasets.<br />Literature review on word reordering in real-time Machine Translation. |
 | Kangyan | Searching for spoken language translation datasets.<br />Learning how to deploy machine learning models on AWS. |
 
+### Sept 12, 2018 - Sept 19, 2018
+
+| Member  | Upcoming Tasks                                               |
+| ------- | ------------------------------------------------------------ |
+| Ying    | Further searching spoken language translation datasets in real-time translation setup. |
+| Zhun    | Further searching spoken language translation datasets in real-time translation setup. |
+| Kangyan |                                                              |
+
+
+
 
 
