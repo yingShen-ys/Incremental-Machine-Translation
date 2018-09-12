@@ -24,7 +24,7 @@ This document contains the weekly updates on the incremental machine translation
 | Member  | Upcoming Tasks                                               |
 | ------- | ------------------------------------------------------------ |
 | Ying    | Further searching spoken language translation datasets in real-time translation setup. |
-| Zhun    | Further searching spoken language translation datasets in real-time translation setup. |
+| Zhun    | Searching for other parallel corpora that comes from the source of speech involving non-SVO languages. |
 | Kangyan |                                                              |
 
 
