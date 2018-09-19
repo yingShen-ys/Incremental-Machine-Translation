@@ -13,21 +13,27 @@ This document contains the weekly updates on the incremental machine translation
 
 ### Sept 5, 2018 - Sept 12, 2018
 
-| Member  | Upcoming Tasks                                               |
-| ------- | ------------------------------------------------------------ |
-| Ying    | Searching for spoken language translation datasets.<br />Literature review on word reordering in real-time Machine Translation. |
-| Zhun    | Searching for spoken language translation datasets.<br />Literature review on word reordering in real-time Machine Translation. |
-| Kangyan | Searching for spoken language translation datasets.<br />Learning how to deploy machine learning models on AWS. |
+| Member  | Upcoming Tasks                                               | Completed Tasks                                            |
+| ------- | ------------------------------------------------------------ | ---------------------------------------------------------- |
+| Ying    | Searching for spoken language translation datasets.<br />Literature review on word reordering in real-time Machine Translation. | Collected five spoken language translation datasets.<br /> |
+| Zhun    | Searching for spoken language translation datasets.<br />Literature review on word reordering in real-time Machine Translation. | Collected five spoken language translation datasets.       |
+| Kangyan | Searching for spoken language translation datasets.<br />Learning how to deploy machine learning models on AWS. |                                                            |
 
 ### Sept 12, 2018 - Sept 19, 2018
 
-| Member  | Upcoming Tasks                                               |
-| ------- | ------------------------------------------------------------ |
-| Ying    | Further searching spoken language translation datasets in real-time translation setup. |
-| Zhun    | Searching for other parallel corpora that comes from the source of speech involving non-SVO languages. |
-| Kangyan | Still working on how to deploy machine learning models on AWS.|
+| Member  | Upcoming Tasks                                               | Completed Tasks |
+| ------- | ------------------------------------------------------------ | --------------- |
+| Ying    | Further searching spoken language translation datasets in real-time translation setup. |                 |
+| Zhun    | Searching for other parallel corpora that comes from the source of speech involving non-SVO languages. |                 |
+| Kangyan | Still working on how to deploy machine learning models on AWS. |                 |
 
+### Sept 19, 2018 - Sept 26, 2018
 
+| Member  | Upcoming Tasks | Completed Tasks |
+| ------- | -------------- | --------------- |
+| Ying    |                |                 |
+| Zhun    |                |                 |
+| Kangyan |                |                 |
 
 
 
