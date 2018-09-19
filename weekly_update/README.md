@@ -25,7 +25,7 @@ This document contains the weekly updates on the incremental machine translation
 | ------- | ------------------------------------------------------------ | --------------- |
 | Ying    | Further searching spoken language translation datasets in real-time translation setup. |                 |
 | Zhun    | Searching for other parallel corpora that comes from the source of speech involving non-SVO languages. |                 |
-| Kangyan | Still working on how to deploy machine learning models on AWS. |                 |
+| Kangyan | Still working on how to deploy machine learning models on AWS. | Finish investigating how to deploy tensorflow model.                |
 
 ### Sept 19, 2018 - Sept 26, 2018
 
@@ -33,7 +33,7 @@ This document contains the weekly updates on the incremental machine translation
 | ------- | -------------- | --------------- |
 | Ying    |                |                 |
 | Zhun    | Doing a literature review on the topic of incremental translation               |                 |
-| Kangyan |Start working on backend from Xinjian's existing code.                | Finish investigating how to deploy tensorflow model.                |
+| Kangyan |Start working on backend from Xinjian's existing code.                |                 |
 
 
 
