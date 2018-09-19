@@ -33,7 +33,7 @@ This document contains the weekly updates on the incremental machine translation
 | ------- | -------------- | --------------- |
 | Ying    |                |                 |
 | Zhun    |                |                 |
-| Kangyan |                |                 |
+| Kangyan |Start working on backend from Xinjian's existing code.                | Finish investigating how to deploy tensorflow model.                |
 
 
 
