@@ -32,7 +32,7 @@ This document contains the weekly updates on the incremental machine translation
 | Member  | Upcoming Tasks | Completed Tasks |
 | ------- | -------------- | --------------- |
 | Ying    |                |                 |
-| Zhun    |                |                 |
+| Zhun    | Doing a literature review on the topic of incremental translation               |                 |
 | Kangyan |Start working on backend from Xinjian's existing code.                | Finish investigating how to deploy tensorflow model.                |
 
 
