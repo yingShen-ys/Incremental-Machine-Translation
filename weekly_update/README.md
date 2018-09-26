@@ -29,16 +29,16 @@ This document contains the weekly updates on the incremental machine translation
 
 ### Sept 19, 2018 - Sept 26, 2018
 
-| Member  | Upcoming Tasks                                               | Completed Tasks |
-| ------- | ------------------------------------------------------------ | --------------- |
-| Ying    | Doing a literature review on the topic of incremental translation.<br />Investigating the human strategies in simultaneous interpretation. | Completed       |
-| Zhun    | Doing a literature review on the topic of incremental translation. | Located two interpretation dataset                |
-| Kangyan | Start working on backend from Xinjian's existing code.       |                 |
+| Member  | Upcoming Tasks                                               | Completed Tasks                                              |
+| ------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| Ying    | Doing a literature review on the topic of incremental translation.<br />Investigating the human strategies in simultaneous interpretation. | Located two interpretation dataset.<br />Investigated human strategies in simultaneous interpretation.<br />Get accessed to three dataset that requires agreement. |
+| Zhun    | Doing a literature review on the topic of incremental translation. | Located two interpretation dataset.<br />Put up a reading list on incremental translation for the team. |
+| Kangyan | Start working on backend from Xinjian's existing code.       | Worked on backend from Xinjian's existing code.              |
 
 ### Sept 26, 2018 - Oct 3, 2018
 
 | Member  | Upcoming Tasks                                               | Completed Tasks |
 | ------- | ------------------------------------------------------------ | --------------- |
 | Ying    | Investigating evaluation metrics for simutaneous interpretation.<br />Writing a summary of possible datasets. |                 |
-| Zhun    |  Getting access to some of the datasets that need consent forms, signing agreements, etc.                                                            |  Put up a reading list on incremental translation for the team               |
-| Kangyan |  Working on backend from Xinjian's existing code.                                                            |                 |
+| Zhun    | Getting access to some of the datasets that need consent forms, signing agreements, etc. |                 |
+| Kangyan | Working on backend from Xinjian's existing code.             |                 |
