@@ -39,6 +39,6 @@ This document contains the weekly updates on the incremental machine translation
 
 | Member  | Upcoming Tasks                                               | Completed Tasks |
 | ------- | ------------------------------------------------------------ | --------------- |
-| Ying    | Investigating evaluation metrics for simutaneous interpretation. |                 |
+| Ying    | Investigating evaluation metrics for simutaneous interpretation.<br />Writing a summary of possible datasets. |                 |
 | Zhun    |                                                              |                 |
 | Kangyan |                                                              |                 |
