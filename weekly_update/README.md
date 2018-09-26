@@ -41,4 +41,4 @@ This document contains the weekly updates on the incremental machine translation
 | ------- | ------------------------------------------------------------ | --------------- |
 | Ying    | Investigating evaluation metrics for simutaneous interpretation.<br />Writing a summary of possible datasets. |                 |
 | Zhun    |                                                              |                 |
-| Kangyan |                                                              |                 |
+| Kangyan |  Working on backend from Xinjian's existing code.                                                            |                 |
