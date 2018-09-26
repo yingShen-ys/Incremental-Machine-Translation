@@ -31,9 +31,14 @@ This document contains the weekly updates on the incremental machine translation
 
 | Member  | Upcoming Tasks                                               | Completed Tasks |
 | ------- | ------------------------------------------------------------ | --------------- |
-| Ying    | Doing a literature review on the topic of incremental translation.<br />Investigating the human strategies in simultaneous interpretation. |                 |
+| Ying    | Doing a literature review on the topic of incremental translation.<br />Investigating the human strategies in simultaneous interpretation. | Completed       |
 | Zhun    | Doing a literature review on the topic of incremental translation. |                 |
 | Kangyan | Start working on backend from Xinjian's existing code.       |                 |
 
+### Sept 26, 2018 - Oct 3, 2018
 
-
+| Member  | Upcoming Tasks                                               | Completed Tasks |
+| ------- | ------------------------------------------------------------ | --------------- |
+| Ying    | Investigating evaluation metrics for simutaneous interpretation. |                 |
+| Zhun    |                                                              |                 |
+| Kangyan |                                                              |                 |
