@@ -40,5 +40,13 @@ This document contains the weekly updates on the incremental machine translation
 | Member  | Upcoming Tasks                                               | Completed Tasks |
 | ------- | ------------------------------------------------------------ | --------------- |
 | Ying    | Investigating evaluation metrics for simutaneous interpretation.<br />Writing a summary of possible datasets. |                 |
-| Zhun    | Getting access to some of the datasets that need consent forms, signing agreements, etc. |                 |
+| Zhun    | Getting access to some of the datasets that need consent forms, signing agreements, etc. | Updated a list of related works that we can base our work on      |
+| Kangyan | Working on backend from Xinjian's existing code.             |                 |
+
+### Sept 3, 2018 - Oct 10, 2018
+
+| Member  | Upcoming Tasks                                               | Completed Tasks |
+| ------- | ------------------------------------------------------------ | --------------- |
+| Ying    | Investigating evaluation metrics for simutaneous interpretation.<br />Writing a summary of possible datasets. |                 |
+| Zhun    | Implementation of a baseline neural machine translation model      |
 | Kangyan | Working on backend from Xinjian's existing code.             |                 |
