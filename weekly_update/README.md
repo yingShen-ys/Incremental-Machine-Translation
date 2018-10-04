@@ -40,7 +40,7 @@ This document contains the weekly updates on the incremental machine translation
 | Member  | Upcoming Tasks                                               | Completed Tasks                                              |
 | ------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | Ying    | Investigating evaluation metrics for simutaneous interpretation.<br />Writing a summary of possible datasets. | Completed the summary for possible datasets.<br />Decided to go with the NAIST Japanese-English simutaneous interpretation datasets.<br />Implemented the basic machine translation model. |
-| Zhun    | Getting access to some of the datasets that need consent forms, signing agreements, etc. | Implemented the basic machine translation model.             |
+| Zhun    | Getting access to some of the datasets that need consent forms, signing agreements, etc. | Updated a list of related works that we can base our work on.<br />Implemented the basic machine translation model. |
 | Kangyan | Working on backend from Xinjian's existing code.             | Implemented the basic machine translation model.             |
 
 ### Oct 3, 2018 - Oct 10, 2018
@@ -48,5 +48,6 @@ This document contains the weekly updates on the incremental machine translation
 | Member  | Upcoming Tasks                                               | Completed Tasks |
 | ------- | ------------------------------------------------------------ | --------------- |
 | Ying    | Train and test the basic machine translation model on the NAIST dataset.<br />Keep requesting the CIAIR corpus from the authors. |                 |
-| Zhun    |                                                              |                 |
-| Kangyan |                                                              |                 |
+| Zhun    | Implementation of a baseline neural machine translation model |                 |
+| Kangyan | Working on backend from Xinjian's existing code.             |                 |
+
