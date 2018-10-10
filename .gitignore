@@ -1,3 +1,6 @@
+# customer
+baseline/mt/data/
+baseline/mt/.idea/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
