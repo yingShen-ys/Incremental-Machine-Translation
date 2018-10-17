@@ -5,6 +5,7 @@ import torch.nn as nn
 
 from model import Model
 from bleu import sentence_bleu
+from utils import batch_iter
 
 class BaselineNetwork(nn.modules):
     def __init__(self, input_size, hidden_size_1 = 128, hidden_size_2 = 64):
@@ -45,7 +46,10 @@ class Reinforce(nn.modules):
             average_proportion_factor, consecutive_wait_factor, average_proportion_baseline, consecutive_wait_baseline):
         self.action_size = 2
         self.vocab = vocab
-        self.model = Model.load(pretrain_model_path)
+        if pretrain_model_path:
+            self.model = Model.load(pretrain_model_path)
+        else:
+            self.model = Model(256, 256, vocab)
         self.input_size = embedding_size + 2 * hidden_size
         self.network = Network(self.input_size, hidden_size, self.action_size)
         self.baseline_network = BaselineNetwork()
@@ -59,9 +63,6 @@ class Reinforce(nn.modules):
         self.consecutive_wait_baseline = consecutive_wait_baseline
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-        self.network_optimizer = torch.optim.Adam([self.network.parameters()])
-        self.baseline_optimizer = torch.optim.Adam([self.baseline_network.parameters()])
-    
     def compute_full_BLEU(self, golden, predictions):
         size = golden.size(0)
         result = []
@@ -83,27 +84,33 @@ class Reinforce(nn.modules):
         return torch.Tensor(result)
 
     def train_batch(self, src, original_src_lens, tgt, otiginal_tgt_lens):
+        if torch.cuda.is_available():
+            torch.IntTensor = torch.cuda.IntTensor
+            torch.ByteTensor = torch.cuda.ByteTensor
+            torch.FloatTensor = torch.cuda.FloatTensor
+
+        self.model.eval()
         batch_size = len(src)
-        batch_lens = torch.Tensor([1 for _ in range(batch_size)], dtype = torch.int32) # curr READ index
-        decoding_steps = torch.Tensor([0 for _ in range(batch_size)], dtype = torch.int32) # curr WRITE index
-        ending_step = torch.Tensor([0 for _ in range(batch_size)], dtype = torch.int32)
-        ending_flag = torch.ByteTensor([0 for _ in range(batch_size)], dtype=torch.uint8)
+        batch_lens = torch.IntTensor(batch_size).fill_(1) # curr READ index
+        decoding_steps = torch.IntTensor(batch_size).fill_(0) # curr WRITE index
+        ending_step = torch.IntTensor(batch_size).fill_(0)
+        ending_flag = torch.ByteTensor(batch_size).fill_(0)
         #TODO: set <s> token in output_tokens
-        output_tokens = torch.zeros([batch_size, self.max_decoding_step], dtype=torch.int32) # B x 1. all <s> as start
+        output_tokens = torch.IntTensor([batch_size, self.max_decoding_step]).fill_(0) # B x 1. all <s> as start
 
         # variable related to rewards
         max_size = self.max_decoding_step + torch.max(original_src_lens)
-        rewards = torch.zeros([batch_size, max_size])
-        baseline_rewards = torch.zeros([batch_size, max_size])
+        rewards = torch.FloatTensor([batch_size, max_size]).fill_(0.)
+        baseline_rewards = torch.FloatTensor([batch_size, max_size]).fill_(0.)
 
         # variables related to average proportions
-        average_proportions = torch.Tensor([0 for _ in range(batch_size)], dtype = torch.int32)
-        last_write = torch.zeros(batch_size)
+        average_proportions = torch.IntTensor(batch_size).fill_(0)
+        last_write = torch.IntTensor(batch_size).fill_(0)
         actions = []
         pred_actions = []
 
         # variables related to consecutive wait length
-        consecutive_waits = torch.zeros(batch_size)
+        consecutive_waits = torch.IntTensor(batch_size).fill_(0)
         
         t = torch.Tensor([0 for _ in range(batch_size)], dtype = torch.int32)
         while torch.max(decoding_steps) < self.max_decoding_step and torch.all(ending_flag < 1): #
@@ -186,14 +193,34 @@ class Reinforce(nn.modules):
             rewards[i, ending_indices:] = 0
             baseline_rewards[i, ending_indices:] = 0
 
-        # compute baseline rewards
         baseline_loss = self.baseline_network_loss(rewards, baseline_rewards)
-        self.baseline_optimizer.zero_grad()
-        baseline_loss.backward()
-        self.baseline_optimizer.step()
-            
-        # compute network loss
-        network_loss = self.network_loss(torch.cat(pred_actions), torch.cat(actions), rewards - baseline_rewards)
-        self.network_optimizer.zero_grad()
-        network_loss.backward()
-        self.network_optimizer.step()
+        new_rewards = rewards - baseline_rewards
+        network_loss = self.network_loss(torch.cat(pred_actions), torch.cat(actions), new_rewards)
+
+        return baseline_loss, network_loss, torch.sum(new_rewards)
+    
+    def validation(self, dev_data, batch_size, cuda=True):
+        if torch.cuda.is_available():
+            torch.IntTensor = torch.cuda.IntTensor
+            torch.ByteTensor = torch.cuda.ByteTensor
+            torch.FloatTensor = torch.cuda.FloatTensor
+        
+        total_network_loss = total_baseline_loss = total_rewards = 0
+        for src_sents, tgt_sents in batch_iter(dev_data, batch_size):
+            tgt_word_num_to_predict = sum(len(s[1:]) for s in tgt_sents)  # omitting the leading `<s>`
+            src_lens = torch.LongTensor(list(map(len, src_sents)))
+            trg_lens = torch.LongTensor(list(map(len, tgt_sents)))
+
+            src_sents = torch.LongTensor(src_sents)
+            tgt_sents = torch.LongTensor(tgt_sents)
+            baseline_loss, network_loss, rewards = model(src_sents, src_lens, tgt_sents, trg_lens)
+            total_network_loss += network_loss
+            total_baseline_loss += baseline_loss
+            total_rewards += rewards
+        
+        print("validation baseline loss %.2f, network loss %.2f, rewards %.2f" %
+            (total_baseline_loss / len(dev_data),
+            total_network_loss / len(dev_data),
+            total_rewards / len(dev_data)), file=sys.stderr)
+
+        return 
