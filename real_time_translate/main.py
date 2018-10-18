@@ -4,9 +4,10 @@
 A very basic implementation of neural machine translation
 
 Usage:
-    nmt.py train --model-type=<str> --train-src=<file> --train-tgt=<file> --dev-src=<file> --dev-tgt=<file> --vocab=<file> [options]
-    nmt.py decode [options] VOCAB_PATH MODEL_PATH TEST_SOURCE_FILE OUTPUT_FILE
-    nmt.py decode [options] VOCAB_PATH MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
+    main.py pretrain --train-src=<file> --train-tgt=<file> --dev-src=<file> --dev-tgt=<file> --vocab=<file> [options]
+    main.py train --train-src=<file> --train-tgt=<file> --dev-src=<file> --dev-tgt=<file> --vocab=<file> [options]
+    main.py decode [options] VOCAB_PATH MODEL_PATH TEST_SOURCE_FILE OUTPUT_FILE
+    main.py decode [options] VOCAB_PATH MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
 
 Options:
     -h --help                               show this screen.
@@ -35,13 +36,15 @@ Options:
     --save-to=<file>                        model save path
     --valid-niter=<int>                     perform validation after how many iterations [default: 2000]
     --dropout=<float>                       dropout [default: 0.2]
-    --max-decoding-time-step=<int>          maximum number of decoding time steps [default: 70]
     --hidden-rl-size=<int>                  hidden size of network model
     --pretrain-model-path=<str>             the path to the pretrain model
-    --average_proportion_factor=<float>     the factor for average proportion
-    --consecutive_wait_factor=<float>       the factor for consecutive wait
-    --average_proportion_baseline=<float>   the baseline for average proportion
-    --consecutive_wait_baseline=<float>     the baseline for consecutive wait
+    --average-proportion-factor=<float>     the factor for average proportion
+    --consecutive-wait-factor=<float>       the factor for consecutive wait
+    --average-proportion-baseline=<float>   the baseline for average proportion
+    --consecutive-wait-baseline=<float>     the baseline for consecutive wait
+    --max-decoding-time-step=<int>          maximum number of decoding time steps [default: 70]
+    --network-lr=<float>                    learning rate [default: 0.001]
+    --baseline-lr=<float>                   learning rate [default: 0.001]
 """
 
 import math
@@ -62,7 +65,7 @@ from utils import read_corpus, batch_iter, lstm_init_, lstm_cell_init_
 from vocab import Vocab, VocabEntry
 from model import LSTMSeq2seq
 from torch.nn.init import uniform_
-from agent import Model
+from agent import PolicyGradient
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
 Tensor = torch.tensor
@@ -125,6 +128,7 @@ def pre_train(args: Dict[str, str]):
                         dropout_rate=float(args['--dropout']),
                         vocab=vocab)
 
+    model.set_forward_function(True)
     optimizer = torch.optim.Adam(model.parameters(), lr=float(args['--lr']))
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=float(args['--lr-decay']), patience=int(args['--patience']), verbose=True)
     optimizer_state_copy = copy.deepcopy(optimizer.state_dict())
@@ -148,10 +152,6 @@ def pre_train(args: Dict[str, str]):
         torch.LongTensor = torch.cuda.LongTensor
         model.cuda()
 
-    init_tf_rate = 1.0
-    tf_rate = init_tf_rate
-    decay_steps = len(train_data) * 3
-    min_tf_rate = 0.5
     while True:
         epoch += 1
         print(f"There are {len(train_data)//train_batch_size} batches in total.")
@@ -169,10 +169,9 @@ def pre_train(args: Dict[str, str]):
             tgt_sents = torch.LongTensor(tgt_sents)
 
             train_iter += 1
-            tf_rate = init_tf_rate - (init_tf_rate - min_tf_rate) * min(train_iter / decay_steps, 1)
 
             # (batch_size,)
-            loss = -model(src_sents, src_lens, tgt_sents, trg_lens, teacher_forcing=tf_rate)
+            loss = -model(src_sents, src_lens, tgt_sents, trg_lens)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), args['--clip-grad'])
             optimizer.step()
@@ -292,17 +291,18 @@ def train(args: Dict[str, str]):
 
     vocab = pickle.load(open(args['--vocab'], 'rb'))
 
-    model = Model(vocab, 
+    agent = PolicyGradient(vocab, 
                  int(args['--hidden-rl-size']), 
-                 int(arg['--max_decoding_time_step']),
-                 arg['--pretrain-model-path'],
-                 float(arg['--average_proportion_factor']), 
-                 float(arg['--consecutive_wait_factor']), 
-                 float(arg['--average_proportion_baseline']), 
-                 float(arg['--consecutive_wait_baseline']))
+                 int(args['--max-decoding-time-step']),
+                 args['--pretrain-model-path'],
+                 float(args['--average-proportion-factor']), 
+                 float(args['--consecutive-wait-factor']), 
+                 float(args['--average-proportion-baseline']), 
+                 float(args['--consecutive-wait-baseline']))
 
-    network_optimizer = torch.optim.Adam([model.network.parameters()], lr=float(args['--network-lr']))
-    baseline_optimizer = torch.optim.Adam([model.baseline_network.parameters()], lr=float(args['--baseline-lr']))
+    agent.model.set_forward_function(False)
+    network_optimizer = torch.optim.Adam(list(agent.network.parameters()), lr=float(args['--network-lr']))
+    baseline_optimizer = torch.optim.Adam(list(agent.baseline_network.parameters()), lr=float(args['--baseline-lr']))
 
     network_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(network_optimizer, mode='max', factor=float(args['--lr-decay']), patience=int(args['--patience']), verbose=True)
     network_optimizer_state_copy = copy.deepcopy(network_optimizer.state_dict())
@@ -310,7 +310,7 @@ def train(args: Dict[str, str]):
     baseline_optimizer_state_copy = copy.deepcopy(baseline_optimizer.state_dict())
 
     # uniformly initialize all parameters
-    for parameter in model.parameters():
+    for parameter in agent.parameters():
         uniform_(parameter, a=-float(args['--uniform-init']), b=float(args['--uniform-init']))
 
     num_trial = 0
@@ -320,8 +320,7 @@ def train(args: Dict[str, str]):
     print('begin Policy Gradient training')
 
     if args['--cuda']:
-        torch.LongTensor = torch.cuda.LongTensor
-        model.cuda()
+        agent.cuda()
 
     while True:
         epoch += 1
@@ -329,7 +328,7 @@ def train(args: Dict[str, str]):
         for src_sents, tgt_sents in batch_iter(train_data, batch_size=train_batch_size, shuffle=True):
             tgt_words_num_to_predict = sum(len(s[1:]) for s in tgt_sents)  # omitting leading `<s>`
             batch_size = len(src_sents)
-            model.train()
+            agent.train()
             src_lens = torch.LongTensor(list(map(len, src_sents)))
             trg_lens = torch.LongTensor(list(map(len, tgt_sents)))
 
@@ -342,15 +341,15 @@ def train(args: Dict[str, str]):
             train_iter += 1
 
             # (batch_size,)
-            baseline_loss, network_loss, rewards = model(src_sents, src_lens, tgt_sents, trg_lens)
+            baseline_loss, network_loss, rewards = agent(src_sents, src_lens, tgt_sents, trg_lens)
             
             baseline_optimizer.zero_grad()
-            torch.nn.utils.clip_grad_norm_(model.baseline_network.parameters(), args['--clip-grad'])
+            torch.nn.utils.clip_grad_norm_(agent.baseline_network.parameters(), args['--clip-grad'])
             baseline_loss.backward()
             baseline_optimizer.step()
                 
             network_optimizer.zero_grad()
-            torch.nn.utils.clip_grad_norm_(model.network.parameters(), args['--clip-grad'])
+            torch.nn.utils.clip_grad_norm_(agent.network.parameters(), args['--clip-grad'])
             network_loss.backward()
             network_optimizer.step()
 
@@ -372,11 +371,12 @@ def train(args: Dict[str, str]):
 
                 total_network_loss = total_baseline_loss = cumulative_examples = 0.
                 valid_num += 1
+                torch.save(agent, model_save_path + '_train_iter')
 
                 print('begin validation ...', file=sys.stderr)
-                model.eval()
-                model.validation()
-                model.train()
+                agent.eval()
+                agent.validation()
+                agent.train()
 
             if epoch == int(args['--max-epoch']):
                 print('reached maximum number of epochs!', file=sys.stderr)
@@ -414,7 +414,6 @@ def greedy_search(model: object, test_data_src: List[List[str]], beam_size: int,
         hypotheses.append(example_hyps)
 
     return hypotheses
-
 
 def decode(args: Dict[str, str]):
     """
@@ -458,6 +457,8 @@ def main():
     if args['--cuda']:
         torch.cuda.manual_seed_all(seed * 13 // 7)
 
+    if args['pretrain']:
+        pre_train(args)
     if args['train']:
         train(args)
     elif args['decode']:

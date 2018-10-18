@@ -22,22 +22,12 @@ def lstm_init_(lstm_unit):
     for l in range(lstm_unit.num_layers):
         xavier_uniform_(getattr(lstm_unit, "weight_ih_l{}".format(l)).data)
         orthogonal_(getattr(lstm_unit, "weight_hh_l{}".format(l)).data)
-        xavier_uniform_(
-            getattr(lstm_unit, "weight_ih_l{}{}".format(l, '_reverse')).data)
-        orthogonal_(
-            getattr(lstm_unit, "weight_hh_l{}{}".format(l, '_reverse')).data)
         getattr(lstm_unit, "bias_ih_l{}".format(l)).data.fill_(0)
         getattr(lstm_unit, "bias_ih_l{}".format(
             l)).data[lstm_unit.hidden_size: 2*lstm_unit.hidden_size] = 1./2
-        getattr(lstm_unit, "bias_ih_l{}{}".format(l, '_reverse')).data.fill_(0)
-        getattr(lstm_unit, "bias_ih_l{}{}".format(l, '_reverse')
-                ).data[lstm_unit.hidden_size: 2*lstm_unit.hidden_size] = 1./2
         getattr(lstm_unit, "bias_hh_l{}".format(l)).data.fill_(0)
         getattr(lstm_unit, "bias_hh_l{}".format(
             l)).data[lstm_unit.hidden_size: 2*lstm_unit.hidden_size] = 1./2
-        getattr(lstm_unit, "bias_hh_l{}{}".format(l, '_reverse')).data.fill_(0)
-        getattr(lstm_unit, "bias_hh_l{}{}".format(l, '_reverse')
-                ).data[lstm_unit.hidden_size: 2*lstm_unit.hidden_size] = 1./2
 
 def lstm_cell_init_(lstm_cell):
     '''
@@ -97,30 +87,30 @@ def read_corpus(file_path, source):
 
     return data
 
-# def process_data(file_dir, file_name):
-#     data = ""
-#     for line in open(file_dir + file_name).readlines():
-#         if line.find("<") == -1:
-#             doc_text = True
-#         else:
-#             doc_text = False
-#         if doc_text:
-#             data += ' '.join(line)[2:]
-#
-#     with open(file_dir + 'p_' + file_name, 'w') as f:
-#         f.write(data)
-
 def process_data(file_dir, file_name):
     data = ""
     for line in open(file_dir + file_name).readlines():
-        data += ' '.join(line)
+        if line.find("<") == -1:
+            doc_text = True
+        else:
+            doc_text = False
+        if doc_text:
+            data += ' '.join(line)[2:]
 
     with open(file_dir + 'p_' + file_name, 'w') as f:
         f.write(data)
 
-process_data("data/JESC/", "train.ja")
-process_data("data/JESC/", "val.ja")
-process_data("data/JESC/", "test.ja")
+# def process_data(file_dir, file_name):
+#     data = ""
+#     for line in open(file_dir + file_name).readlines():
+#         data += ' '.join(line)
+
+#     with open(file_dir + 'p_' + file_name, 'w') as f:
+#         f.write(data)
+
+# process_data("data/JESC/", "train.ja")
+# process_data("data/JESC/", "val.ja")
+# process_data("data/JESC/", "test.ja")
 
 def batch_iter(data, batch_size, shuffle=False):
     """
