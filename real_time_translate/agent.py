@@ -24,21 +24,20 @@ class BaselineNetwork(nn.Module):
 class Network(nn.Module):
     def __init__(self, input_size, output_size, action_size):
         super(Network, self).__init__()
-        self.rnn = nn.GRU(input_size, output_size, bidirectional = True, batch_first = True)
-        self.linear = nn.Linear(output_size * 2, action_size)
+        self.rnn = nn.GRUCell(input_size, output_size)
+        self.linear = nn.Linear(output_size, action_size)
         self.softmax = nn.Softmax(dim = 1)
         self.output_size = output_size
+        self.prev_state = torch.zeros(1, self.output_size)
     
-    def forward(self, observations, observation_lens):
-        print("observations size", observations.size())
-        print("observations length size", observation_lens.size())
-        packed_observation_vectors = torch.nn.utils.rnn.pack_padded_sequence(observations, observation_lens, batch_first=True)
-        packed_observation_states, final_states = self.rnn(packed_observation_vectors)
-        # _, observation_states = torch.nn.utils.rnn.pad_packed_sequence(packed_observation_states, batch_first=True)
-        # print(final_states.size())
-        final_states = final_states.view(len(observation_lens), self.output_size * 2)
-        actions = self.softmax(self.linear(final_states))
+    def forward(self, observation):
+        state = self.rnn(observation, self.prev_state)
+        actions = self.softmax(self.linear(state))
+        self.prev_state = state
         return actions
+    
+    def reset_state(self):
+        self.prev_state = torch.zeros(1, self.output_size)
 
 class PolicyGradientLoss(nn.Module):
     def __init__(self):
@@ -46,8 +45,8 @@ class PolicyGradientLoss(nn.Module):
         self.lossFunc = nn.CrossEntropyLoss(reduce = False)
     
     def forward(self, pred, target, rewards):
-        rewards = (rewards - torch.mean(rewards, 1, True)) / torch.sqrt(torch.var(rewards, 1, True) + 1e-8)
-        return torch.sum(rewards * torch.log(self.lossFunc(pred, target)))
+        rewards = (rewards - torch.mean(rewards)) / torch.sqrt(torch.var(rewards) + 1e-8)
+        return torch.mean(rewards * self.lossFunc(pred, target))
 
 class PolicyGradient(nn.Module):
     def __init__(self, vocab, hidden_size, max_decoding_step, pretrain_model_path, \
@@ -67,193 +66,132 @@ class PolicyGradient(nn.Module):
         self.consecutive_wait_factor = consecutive_wait_factor
         self.average_proportion_baseline = average_proportion_baseline
         self.consecutive_wait_baseline = consecutive_wait_baseline
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        for param in self.model.parameters():
+            param.requires_grad = False
         
         if torch.cuda.is_available():
             self.model = self.model.cuda()
-            torch.IntTensor = torch.cuda.IntTensor
-            torch.ByteTensor = torch.cuda.ByteTensor
-            torch.FloatTensor = torch.cuda.FloatTensor
-            torch.LongTensor = torch.cuda.LongTensor
+        #     torch.IntTensor = torch.cuda.IntTensor
+        #     torch.ByteTensor = torch.cuda.ByteTensor
+        #     torch.FloatTensor = torch.cuda.FloatTensor
+        #     torch.LongTensor = torch.cuda.LongTensor
 
-    def compute_full_BLEU(self, golden, predictions):
-        size = golden.size(0)
-        result = []
-        for i in range(size):
-            references = [golden[i]]
-            prediction = predictions[i]
-            result.append(sentence_bleu(references, prediction)[1])
-        
-        return torch.FloatTensor(result)
+    def compute_full_BLEU(self, golden, prediction):
+        return sentence_bleu(golden, prediction)[1]
 
-    def compute_partial_BLEU(self, golden, predictions):
-        size = golden.size(0)
-        result = []
-        for i in range(size):
-            references = [golden[i]]
-            prediction = predictions[i]
-            result.append(sentence_bleu(references, prediction)[0])
-            
-        return torch.FloatTensor(result)
+    def compute_partial_BLEU(self, golden, prediction):
+        return sentence_bleu(golden, prediction)[0]
 
-    def forward(self, src, original_src_lens, tgt, otiginal_tgt_lens):
+    def forward(self, src, tgt):
         self.model.eval()
-        batch_size = len(src)
-        batch_lens = torch.LongTensor(batch_size).fill_(1) # curr READ index
-        decoding_steps = torch.LongTensor(batch_size).fill_(0) # curr WRITE index
-        ending_step = torch.IntTensor(batch_size).fill_(0)
-        ending_flag = torch.ByteTensor(batch_size).fill_(0)
-        #TODO: set <s> token in output_tokens
-        output_tokens = torch.LongTensor(batch_size, self.max_decoding_step).fill_(0) # B x 1. all <s> as start
+        self.network.reset_state()
+        tgt = tgt.data.numpy()
+        batch_lens = 1 # curr READ index
+        decoding_steps = 0 # curr WRITE index
+        is_ending = False
+        last_context_vector = None
+        output_tokens = [0]
+        observations = []
 
         # variable related to rewards
-        max_size = self.max_decoding_step + torch.max(original_src_lens)
-        rewards = torch.FloatTensor(batch_size, max_size).fill_(0.)
-        baseline_rewards = torch.FloatTensor(batch_size, max_size).fill_(0.)
+        rewards = []
 
         # variables related to average proportions
-        average_proportions = torch.IntTensor(batch_size).fill_(0)
-        last_write = torch.IntTensor(batch_size).fill_(0)
+        average_proportions = 0
+        last_write = 0
         actions = []
-        pred_actions = []
+        action_probs = []
 
         # variables related to consecutive wait length
-        consecutive_waits = torch.IntTensor(batch_size).fill_(0)
-        
-        t = torch.IntTensor(batch_size).fill_(1)
-        while torch.max(decoding_steps) < self.max_decoding_step and torch.any(ending_flag != 1):
-            sorted_batch_lens, idx_sort = torch.sort(batch_lens, descending=True)
-            print(sorted_batch_lens)
-            _, idx_unsort = torch.sort(idx_sort, dim=0)
-            previous_tokens = torch.gather(output_tokens, 1, decoding_steps.view(-1, 1)).squeeze()
-            previous_tokens = torch.index_select(previous_tokens, 0, idx_sort)
-            src = torch.index_select(src, 0, idx_sort)
-            context_vector, h, prd_token = self.model.forward(src, sorted_batch_lens, previous_tokens)
+        consecutive_waits = 0
+        t = 0
+        while not is_ending:
+            rewards.append(torch.zeros(1))
+            context_vector, h, prd_token = self.model(src, torch.LongTensor([batch_lens]).cuda(), \
+                                                                                    torch.LongTensor([output_tokens[-1]]).cuda(), last_context_vector)
+            last_context_vector = context_vector
             prd_embedding = self.model.trg_embedding(prd_token)
-            print(context_vector.size(), h.size(), prd_embedding.size())
             # context_vector: B x batch_lens x hidden_size
             # h: B x batch_lens x hidden_size
             # prd_embedding: B x batch_lens x embedding_size
             
             # steps: 
             # 1. compute actions
+            context_vector = context_vector.cpu()
+            h = h.cpu()
+            prd_embedding = prd_embedding.cpu()
+            observation = torch.cat([context_vector, h, prd_embedding], dim = 1)
+            observations.append(observation)
+            action_prob = self.network(observation)
+            action_probs.append(action_prob)
+            
+            m = torch.distributions.Categorical(action_prob)
+            action = m.sample()
+            actions.append(action.data[0])
+
             # 2. For READ, increment batch_lens
             #    For WRITE, increment decoding_steps
-            if len(context_vector.size()) < 3:
-                context_vector, h, prd_embedding = context_vector.unsqueeze(1), h.unsqueeze(1), prd_embedding.unsqueeze(1)
-            print(context_vector.size(), h.size(), prd_embedding.size())
-            observation = torch.cat([context_vector, h, prd_embedding], dim = 2)
-            observation = torch.index_select(observation, 0, idx_unsort)
-            print(observation.size())
-            # t = batch_lens + decoding_steps
-            pred_action = self.network(observation, t)
-            print(pred_action.size())
-            pred_actions.append(pred_action)
-            action = torch.ByteTensor(batch_size).fill_(0)
-
-            # READ operations: 
-            # 1. increment batch_lens
-            read_actions = torch.ByteTensor(batch_size).fill_(0)
-            read_actions[(pred_action[:,0] >= 0.5).nonzero()] = 1
-            write_actions = ~read_actions
-            read_indices = (read_actions & (~ending_flag)).nonzero().view(-1)  # only read(1) and not ending(0) will perform actual write
-            action[read_indices] = 1
-            batch_lens[read_indices] += 1
-            # 2.update 
-            consecutive_waits[read_indices] += 1
-            # 3. set ending flag for reading the next token of </s>
-            read_ending_indices = (batch_lens == original_src_lens).nonzero().view(-1)
-            ending_flag[read_ending_indices] = 1
-            
-            # WRITE operations:
-            # 1. increment decoding steps, write to output buffer
-            write_indices = (write_actions & (~ending_flag)).nonzero().view(-1) # only write(1) and not ending(0) will perform actual write
-            action[write_indices] = 1
-            actions.append(action)
-            decoding_steps[write_indices] += 1
-            # print(write_indices.size())
-            # print(decoding_steps[write_indices].size())
-            # print(output_tokens[write_indices, decoding_steps[write_indices]].size())
-            # print(prd_token[write_indices].size())
-            output_tokens[write_indices, decoding_steps[write_indices]] = prd_token[write_indices]
-            # 2. update average proportions
-            average_proportions[write_indices] += t[write_indices] - last_write[write_indices]
-            last_write[write_indices] = t[0]
-            
-            # 3. update consecutive wait length
-            consecutive_waits[write_indices] = 0
-            
-            # 4. set ending flags for predicting </s>
-            # TODO: assume </s> == 1
-            write_ending_indices = (prd_embedding == 1).nonzero().view(-1).view(-1)
-            ending_flag[write_ending_indices] = 1
+            if action.data[0] == 0:
+                # READ operations: 
+                # 1. increment batch_lens
+                batch_lens += 1
+                # 2.update 
+                consecutive_waits += 1
+                # 3. set ending flag for reading the next token of </s>
+                if batch_lens == len(src[0]) + 1:
+                    is_ending = True
+            else:
+                # WRITE operations:
+                # 1. increment decoding steps, write to output buffer
+                decoding_steps += 1
+                output_tokens.append(prd_token.item())
+                # 2. update average proportions
+                average_proportions += t - last_write
+                last_write = t
+                
+                # 3. update consecutive wait length
+                consecutive_waits = 0
+                
+                # 4. set ending flags for predicting </s>
+                if prd_token.item() == 2 or len(output_tokens) >= self.max_decoding_step:
+                    is_ending = True
 
             # compute rewards
-            ending_indices = torch.cat([read_ending_indices, write_ending_indices], dim = -1).view(-1)
-            # print(ending_indices.size())
-            print(ending_indices)
-            if ending_indices.size(0) > 0:
-                ending_step[ending_indices] = t[0]
-                rewards[ending_indices, t[0]-1] -= \
-                    self.average_proportion_factor * \
-                    (average_proportions[ending_indices].to(self.device, dtype=torch.float32) / \
-                    (original_src_lens[ending_indices] * decoding_steps[ending_indices]).to(self.device, dtype=torch.float32) \
-                        - self.average_proportion_baseline)
-                
+            if is_ending:
+                rewards[t] += self.average_proportion_factor * (average_proportions / (len(src[0]) * len(tgt[0])) - self.average_proportion_baseline)
                 # compute BLEU score
                 # skip read_indices
-                rewards[ending_indices, t[0]-1] += self.compute_full_BLEU(tgt[ending_indices], output_tokens[ending_indices])
-            
-            non_ending_sequences = ((~ending_flag)).nonzero().view(-1)
-            if non_ending_sequences.size(0) > 0:
-                rewards[non_ending_sequences, t[0]-1] -= self.consecutive_wait_factor * \
-                    ((consecutive_waits[non_ending_sequences] > self.consecutive_wait_baseline) + 1).to(self.device, dtype=torch.float32)
+                rewards[t] += self.compute_full_BLEU(tgt, output_tokens)
+            else:
+                # compute BLEU score
+                rewards[t] += self.compute_partial_BLEU(tgt, output_tokens)
 
-            # compute BLEU score
-            write_no_ending_indices = ((write_actions > 0.5) & (~ending_flag)).nonzero().view(-1)
-            if write_no_ending_indices.size(0) > 0:
-                rewards[write_no_ending_indices, t[0]-1] += self.compute_partial_BLEU(tgt[write_no_ending_indices], output_tokens[write_no_ending_indices])
-
-            # compute baseline rewards
-            baseline_reward = self.baseline_network(observation[:,-1,:])
-            baseline_rewards[:, t[0]-1] = baseline_reward
+            rewards[t] += self.consecutive_wait_factor * ((consecutive_waits > self.consecutive_wait_baseline) + 1)
 
             # update time step
             t += 1
 
         # compute accumulative rewards
-        for i in range(1, max_size):
-            rewards[:, i] += rewards[:, i - 1]
+        for i in range(1, len(rewards)):
+            rewards[i] += rewards[i - 1]
 
-        # apply mask
-        for i in range(batch_size):
-            end_indice = ending_step[i]
-            rewards[i, ending_indices:] = 0
-            baseline_rewards[i, ending_indices:] = 0
-
-        baseline_loss = self.baseline_network_loss(rewards, baseline_rewards)
+        rewards = torch.cat(rewards)
+        baseline_rewards = self.baseline_network(torch.cat(observations, dim=0))
+        baseline_loss = self.baseline_network_loss(baseline_rewards, rewards)
         new_rewards = rewards - baseline_rewards
-        network_loss = self.network_loss(torch.cat(pred_actions), torch.cat(actions), new_rewards)
+        network_loss = self.network_loss(torch.cat(action_probs), torch.stack(actions), new_rewards)
 
         return baseline_loss, network_loss, torch.sum(new_rewards)
     
     def validation(self, dev_data, batch_size, cuda=True):
-        if torch.cuda.is_available():
-            torch.IntTensor = torch.cuda.IntTensor
-            torch.ByteTensor = torch.cuda.ByteTensor
-            torch.FloatTensor = torch.cuda.FloatTensor
-        
         total_network_loss = total_baseline_loss = total_rewards = 0
         for src_sents, tgt_sents in batch_iter(dev_data, batch_size):
             tgt_word_num_to_predict = sum(len(s[1:]) for s in tgt_sents)  # omitting the leading `<s>`
-            src_lens = torch.LongTensor(list(map(len, src_sents)))
-            trg_lens = torch.LongTensor(list(map(len, tgt_sents)))
-
             src_sents = torch.LongTensor(src_sents)
             tgt_sents = torch.LongTensor(tgt_sents)
-            baseline_loss, network_loss, rewards = model(src_sents, src_lens, tgt_sents, trg_lens)
-            total_network_loss += network_loss
-            total_baseline_loss += baseline_loss
+            baseline_loss, network_loss, rewards = model(src_sents, tgt_sents)
+            total_network_loss += network_loss.item(0)
+            total_baseline_loss += baseline_loss.item(0)
             total_rewards += rewards
         
         print("validation baseline loss %.2f, network loss %.2f, rewards %.2f" %

@@ -43,7 +43,7 @@ python main.py \
     --dev-tgt ${dev_tgt} \
     --save-to ${work_dir}/model_rl.bin \
     --valid-niter 2400 \
-    --batch-size 64 \
+    --batch-size 1 \
     --hidden-rl-size 512 \
     --uniform-init 0.1 \
     --pretrain-model-path ${work_dir}/model.bin \

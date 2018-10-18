@@ -68,9 +68,9 @@ class LSTMSeq2seq(nn.Module):
         ll = self.decode_pretrain(src_states, final_states, src_lens, trg_tokens, trg_lens)
         return ll
         
-    def forward_rl(self, src_tokens, src_lens, trg_tokens):
+    def forward_rl(self, src_tokens, src_lens, trg_tokens, last_context_vector):
         src_states, final_states = self.encode(src_tokens, src_lens)
-        context_vector, h, prd_token_embedding = self.decode(src_states, final_states, src_lens, trg_tokens)
+        context_vector, h, prd_token_embedding = self.decode(src_states, final_states, src_lens, trg_tokens, last_context_vector)
         return context_vector, h, prd_token_embedding
 
     def encode(self, src_tokens, src_lens):
@@ -152,7 +152,7 @@ class LSTMSeq2seq(nn.Module):
 
         return torch.sum(masked_log_likelihoods)  # seems the training code assumes the log-likelihoods are summed per word
 
-    def decode(self, src_states, final_states, src_lens, trg_tokens):
+    def decode(self, src_states, final_states, src_lens, trg_tokens, last_context_vector = None):
         '''
         Decode with attention and custom decoding.
 
@@ -167,7 +167,11 @@ class LSTMSeq2seq(nn.Module):
         '''
         start_token = trg_tokens  # (batch_size,)
         vector = self.trg_embedding(start_token)  # (batch_size, embedding_size)
-        vector = torch.cat((vector, vector.new_zeros(vector.size(0), self.state_size // self.num_layers)), dim=-1)  # input feeding at first step: no previous attentional vector
+        if last_context_vector is None:
+            # input feeding at first step: no previous attentional vector
+            vector = torch.cat((vector, vector.new_zeros(vector.size(0), self.state_size // self.num_layers)), dim=-1)
+        else:
+            vector = torch.cat((vector, last_context_vector), dim=-1)
         h, c = self.decoder_lstm_cell(vector, final_states)
         context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens,
                                                                     attn_func=self.attn_func))  # (batch_size, hidden_size (*2))
@@ -261,6 +265,49 @@ class LSTMSeq2seq(nn.Module):
         context_vector = torch.einsum('bij,bik->bjk', (value_vectors, attn_weights)).sum(-1)
     
         return context_vector
+    
+    def evaluate_ppl(self, dev_data, batch_size, cuda=True):
+        """
+        Evaluate perplexity on dev sentences
+
+        Args:
+            dev_data: a list of dev sentences
+            batch_size: batch size
+
+        Returns:
+            ppl: the perplexity on dev sentences
+        """
+        self.training = False
+        cum_loss = 0.
+        cum_tgt_words = 0.
+
+        # you may want to wrap the following code using a context manager provided
+        # by the NN library to signal the backend to not to keep gradient information
+        # e.g., `torch.no_grad()`
+
+        if cuda:
+            torch.LongTensor = torch.cuda.LongTensor
+
+        for src_sents, tgt_sents in batch_iter(dev_data, batch_size):
+            tgt_word_num_to_predict = sum(len(s[1:]) for s in tgt_sents)  # omitting the leading `<s>`
+            cum_tgt_words += tgt_word_num_to_predict
+            src_lens = torch.LongTensor(list(map(len, src_sents)))
+            trg_lens = torch.LongTensor(list(map(len, tgt_sents)))
+
+            # these padding functions modify data in-place
+            src_sents = pad(self.vocab.src.words2indices(src_sents))
+            tgt_sents = pad(self.vocab.tgt.words2indices(tgt_sents))
+
+            src_sents = torch.LongTensor(src_sents)
+            tgt_sents = torch.LongTensor(tgt_sents)
+            loss = -self.forward(src_sents, src_lens, tgt_sents, trg_lens).sum()
+
+            loss = loss.item()
+            cum_loss += loss
+
+        ppl = np.exp(cum_loss / cum_tgt_words)
+        self.training = True
+        return ppl
     
     def save_model(self, path):
         torch.save(self, path)
