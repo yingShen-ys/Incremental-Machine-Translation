@@ -55,7 +55,6 @@ class LSTMSeq2seq(nn.Module):
         self.ce_loss = nn.CrossEntropyLoss(reduction='none')
         self.embedding_size = embedding_size
         self.hidden_size = hidden_size
-        # self.softmax = nn.Softmax(dim=1)
 
     def set_forward_function(self, isPretrain):
         if isPretrain:
@@ -68,9 +67,9 @@ class LSTMSeq2seq(nn.Module):
         ll = self.decode_pretrain(src_states, final_states, src_lens, trg_tokens, trg_lens)
         return ll
         
-    def forward_rl(self, src_tokens, src_lens, trg_tokens, last_context_vector):
+    def forward_rl(self, src_tokens, src_lens, trg_tokens, last_context_vector, decoder_hidden_state):
         src_states, final_states = self.encode(src_tokens, src_lens)
-        context_vector, h, prd_token_embedding = self.decode(src_states, final_states, src_lens, trg_tokens, last_context_vector)
+        context_vector, h, prd_token_embedding = self.decode(src_states, final_states, src_lens, trg_tokens, last_context_vector, decoder_hidden_state)
         return context_vector, h, prd_token_embedding
 
     def encode(self, src_tokens, src_lens):
@@ -152,7 +151,7 @@ class LSTMSeq2seq(nn.Module):
 
         return torch.sum(masked_log_likelihoods)  # seems the training code assumes the log-likelihoods are summed per word
 
-    def decode(self, src_states, final_states, src_lens, trg_tokens, last_context_vector = None):
+    def decode(self, src_states, final_states, src_lens, trg_tokens, last_context_vector = None, decoder_hidden_state = None):
         '''
         Decode with attention and custom decoding.
 
@@ -172,15 +171,19 @@ class LSTMSeq2seq(nn.Module):
             vector = torch.cat((vector, vector.new_zeros(vector.size(0), self.state_size // self.num_layers)), dim=-1)
         else:
             vector = torch.cat((vector, last_context_vector), dim=-1)
-        h, c = self.decoder_lstm_cell(vector, final_states)
+        
+        if decoder_hidden_state is None:
+            h, c = self.decoder_lstm_cell(vector, final_states)
+        else:
+            h, c = self.decoder_lstm_cell(vector, decoder_hidden_state)
         context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens,
                                                                     attn_func=self.attn_func))  # (batch_size, hidden_size (*2))
         curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1)))  # the thing to feed in input feeding
         curr_logits = self.decoder_output_layer(curr_attn_vector)  # (batch_size, vocab_size)
-        curr_logits = nn.Softmax(dim=1)(curr_logits)
+        curr_logits = F.log_softmax(curr_logits, dim=-1)
         _, prd_token = torch.max(curr_logits, dim=-1)  # (batch_size,) the decoded tokens
         
-        return context_vector, h, prd_token
+        return context_vector, (h, c), prd_token
 
     def greedy_search(self, src_sent, src_lens, beam_size=5, max_decoding_time_step=70, cuda=True):
         '''
@@ -314,5 +317,8 @@ class LSTMSeq2seq(nn.Module):
 
     @staticmethod
     def load(path):
-        model = torch.load(path)
+        if torch.cuda.is_available():
+            model = torch.load(path)
+        else:
+            model = torch.load(path, map_location='cpu')
         return model

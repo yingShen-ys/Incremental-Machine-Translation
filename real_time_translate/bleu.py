@@ -144,7 +144,10 @@ def corpus_bleu(list_of_references, hypotheses, weights=(0.25, 0.25, 0.25, 0.25)
         # For each order of ngram, calculate the numerator and
         # denominator for the corpus-level modified precision.
         for i, _ in enumerate(weights, start=1):
-            p_i = modified_precision(references, hypothesis, i)
+            if len(hypothesis) >= i:
+                p_i = modified_precision(references, hypothesis, i)
+            else:
+                p_i = Fraction(0, 1, _normalize=False)
             p_numerators[i] += p_i.numerator
             p_denominators[i] += p_i.denominator
 
@@ -183,7 +186,7 @@ def corpus_bleu(list_of_references, hypotheses, weights=(0.25, 0.25, 0.25, 0.25)
     bleu  = math.exp(math.fsum(s))
     bleup = bleu * bp
 
-    return bleu, bp * bleup
+    return bleu, bleup
 
 
 def modified_precision(references, hypothesis, n):

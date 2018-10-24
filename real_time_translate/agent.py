@@ -28,6 +28,7 @@ class Network(nn.Module):
         self.linear = nn.Linear(output_size, action_size)
         self.softmax = nn.Softmax(dim = 1)
         self.output_size = output_size
+        # self.prev_state = torch.zeros(1, self.output_size).cuda()
         self.prev_state = torch.zeros(1, self.output_size)
     
     def forward(self, observation):
@@ -38,6 +39,7 @@ class Network(nn.Module):
     
     def reset_state(self):
         self.prev_state = torch.zeros(1, self.output_size)
+        # self.prev_state = torch.zeros(1, self.output_size).cuda()
 
 class PolicyGradientLoss(nn.Module):
     def __init__(self):
@@ -54,7 +56,7 @@ class PolicyGradient(nn.Module):
         super(PolicyGradient, self).__init__()
         self.action_size = 2
         self.vocab = vocab
-        self.model = LSTMSeq2seq.load(pretrain_model_path)
+        self.load_pretrain_model_weight(pretrain_model_path)
         self.input_size = self.model.embedding_size + 2 * self.model.hidden_size
         self.network = Network(self.input_size, hidden_size, self.action_size)
         self.baseline_network = BaselineNetwork(self.input_size)
@@ -68,13 +70,15 @@ class PolicyGradient(nn.Module):
         self.consecutive_wait_baseline = consecutive_wait_baseline
         for param in self.model.parameters():
             param.requires_grad = False
-        
-        if torch.cuda.is_available():
-            self.model = self.model.cuda()
-        #     torch.IntTensor = torch.cuda.IntTensor
-        #     torch.ByteTensor = torch.cuda.ByteTensor
-        #     torch.FloatTensor = torch.cuda.FloatTensor
-        #     torch.LongTensor = torch.cuda.LongTensor
+
+    def load_pretrain_model_weight(self, pretrain_model_path):
+        pretrain_model = LSTMSeq2seq.load(pretrain_model_path)
+        self.model = LSTMSeq2seq(pretrain_model.embedding_size, pretrain_model.hidden_size, self.vocab, pretrain_model.dropout.p)
+        own_state = self.model.state_dict()
+        for name, param in pretrain_model.state_dict().items():
+            if isinstance(param, nn.Parameter):
+                param = param.data
+            own_state[name].copy_(param)
 
     def compute_full_BLEU(self, golden, prediction):
         return sentence_bleu(golden, prediction)[1]
@@ -82,7 +86,7 @@ class PolicyGradient(nn.Module):
     def compute_partial_BLEU(self, golden, prediction):
         return sentence_bleu(golden, prediction)[0]
 
-    def forward(self, src, tgt):
+    def forward(self, src, tgt, isTest=False):
         self.model.eval()
         self.network.reset_state()
         tgt = tgt.data.numpy()
@@ -90,6 +94,8 @@ class PolicyGradient(nn.Module):
         decoding_steps = 0 # curr WRITE index
         is_ending = False
         last_context_vector = None
+        last_decoder_state = None
+        last_bleu_score = 0
         output_tokens = [0]
         observations = []
 
@@ -107,8 +113,10 @@ class PolicyGradient(nn.Module):
         t = 0
         while not is_ending:
             rewards.append(torch.zeros(1))
-            context_vector, h, prd_token = self.model(src, torch.LongTensor([batch_lens]).cuda(), \
-                                                                                    torch.LongTensor([output_tokens[-1]]).cuda(), last_context_vector)
+            # context_vector, h, prd_token = self.model(src, torch.LongTensor([batch_lens]).cuda(), \
+            #                                                                         torch.LongTensor([output_tokens[-1]]).cuda(), last_context_vector)
+            context_vector, decoder_state, prd_token = self.model(src, torch.LongTensor([batch_lens]), \
+                                                torch.LongTensor([output_tokens[-1]]), last_context_vector, last_decoder_state)
             last_context_vector = context_vector
             prd_embedding = self.model.trg_embedding(prd_token)
             # context_vector: B x batch_lens x hidden_size
@@ -117,10 +125,9 @@ class PolicyGradient(nn.Module):
             
             # steps: 
             # 1. compute actions
-            context_vector = context_vector.cpu()
-            h = h.cpu()
-            prd_embedding = prd_embedding.cpu()
-            observation = torch.cat([context_vector, h, prd_embedding], dim = 1)
+            observation = torch.cat([context_vector, decoder_state[0], prd_embedding], dim = 1)
+            # observations.append(observation.cpu())
+            # action_prob = self.network(observation).cpu()
             observations.append(observation)
             action_prob = self.network(observation)
             action_probs.append(action_prob)
@@ -145,6 +152,7 @@ class PolicyGradient(nn.Module):
                 # 1. increment decoding steps, write to output buffer
                 decoding_steps += 1
                 output_tokens.append(prd_token.item())
+                last_decoder_state = decoder_state
                 # 2. update average proportions
                 average_proportions += t - last_write
                 last_write = t
@@ -161,10 +169,14 @@ class PolicyGradient(nn.Module):
                 rewards[t] += self.average_proportion_factor * (average_proportions / (len(src[0]) * len(tgt[0])) - self.average_proportion_baseline)
                 # compute BLEU score
                 # skip read_indices
+                # print("full score:", self.compute_full_BLEU(tgt, output_tokens))
                 rewards[t] += self.compute_full_BLEU(tgt, output_tokens)
             else:
                 # compute BLEU score
-                rewards[t] += self.compute_partial_BLEU(tgt, output_tokens)
+                # print("partial score:", self.compute_partial_BLEU(tgt, output_tokens))
+                bleu_score = self.compute_partial_BLEU(tgt, output_tokens)
+                rewards[t] += (bleu_score - last_bleu_score)
+                last_bleu_score = bleu_score
 
             rewards[t] += self.consecutive_wait_factor * ((consecutive_waits > self.consecutive_wait_baseline) + 1)
 
@@ -181,17 +193,20 @@ class PolicyGradient(nn.Module):
         new_rewards = rewards - baseline_rewards
         network_loss = self.network_loss(torch.cat(action_probs), torch.stack(actions), new_rewards)
 
-        return baseline_loss, network_loss, torch.sum(new_rewards)
+        if not isTest:
+            return baseline_loss, network_loss, torch.sum(new_rewards)
+        
+        return baseline_loss, network_loss, torch.sum(new_rewards), output_tokens, actions
     
-    def validation(self, dev_data, batch_size, cuda=True):
+    def validation(self, dev_data, batch_size=1):
         total_network_loss = total_baseline_loss = total_rewards = 0
         for src_sents, tgt_sents in batch_iter(dev_data, batch_size):
             tgt_word_num_to_predict = sum(len(s[1:]) for s in tgt_sents)  # omitting the leading `<s>`
             src_sents = torch.LongTensor(src_sents)
             tgt_sents = torch.LongTensor(tgt_sents)
             baseline_loss, network_loss, rewards = model(src_sents, tgt_sents)
-            total_network_loss += network_loss.item(0)
-            total_baseline_loss += baseline_loss.item(0)
+            total_network_loss += network_loss.item()
+            total_baseline_loss += baseline_loss.item()
             total_rewards += rewards
         
         print("validation baseline loss %.2f, network loss %.2f, rewards %.2f" %
@@ -199,4 +214,37 @@ class PolicyGradient(nn.Module):
             total_network_loss / len(dev_data),
             total_rewards / len(dev_data)), file=sys.stderr)
 
-        return 
+        return
+
+    def test_greedy(self, test_data, test_output, batch_size=1):
+        total_network_loss = total_baseline_loss = total_rewards = 0
+        f = open(test_output, 'w')
+        for src_sents, tgt_sents in batch_iter(test_data, batch_size):
+            src_sents_tensor = torch.LongTensor(self.vocab.src.words2indices(src_sents))
+            tgt_sents_tensor = torch.LongTensor(self.vocab.tgt.words2indices(tgt_sents))
+            baseline_loss, network_loss, rewards, output_tokens, actions = self.forward(src_sents_tensor, tgt_sents_tensor, isTest=True)
+            bleu_score = self.compute_full_BLEU(tgt_sents_tensor.numpy(), output_tokens)
+            for i in range(len(output_tokens)):
+                output_tokens[i] = self.vocab.tgt.id2word.get(output_tokens[i], 'OOV---')
+            for i in range(len(actions)):
+                if actions[i] == 0:
+                    actions[i] = 'READ'
+                else:
+                    actions[i] = 'WRITE'
+
+            total_network_loss += network_loss.item()
+            total_baseline_loss += baseline_loss.item()
+            total_rewards += rewards
+        
+            f.write(' '.join(actions) + '\n')
+            f.write(' '.join(output_tokens) + '\n')
+            f.write(' '.join(tgt_sents[0]) + '\n')
+            f.write(str(bleu_score) + '\n')
+            f.write('\n')
+        
+        f.close()
+                
+        print("validation baseline loss %.2f, network loss %.2f, rewards %.2f" %
+            (total_baseline_loss / len(dev_data),
+            total_network_loss / len(dev_data),
+            total_rewards / len(dev_data)), file=sys.stderr)

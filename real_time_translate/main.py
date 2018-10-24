@@ -8,6 +8,7 @@ Usage:
     main.py train --train-src=<file> --train-tgt=<file> --dev-src=<file> --dev-tgt=<file> --vocab=<file> [options]
     main.py decode [options] VOCAB_PATH MODEL_PATH TEST_SOURCE_FILE OUTPUT_FILE
     main.py decode [options] VOCAB_PATH MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
+    main.py test [options] VOCAB_PATH MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
 
 Options:
     -h --help                               show this screen.
@@ -316,6 +317,7 @@ def train(args: Dict[str, str]):
     num_trial = 0
     train_iter = total_network_loss = total_baseline_loss = total_rewards = 0
     epoch = valid_num = cumulative_examples = 0
+    baseline_losses = network_losses = []
     train_time = time.time()
     print('begin Policy Gradient training')
 
@@ -332,14 +334,15 @@ def train(args: Dict[str, str]):
             src_sents = pad(vocab.src.words2indices(src_sents))
             tgt_sents = pad(vocab.tgt.words2indices(tgt_sents))
 
-            src_sents = torch.LongTensor(src_sents).cuda()
+            # src_sents = torch.LongTensor(src_sents).cuda()
+            src_sents = torch.LongTensor(src_sents)
             tgt_sents = torch.LongTensor(tgt_sents)
 
             train_iter += 1
 
             # (batch_size,)
             baseline_loss, network_loss, rewards = agent(src_sents, tgt_sents)
-                
+            
             network_optimizer.zero_grad()
             network_loss.backward(retain_graph=True)
             torch.nn.utils.clip_grad_norm_(agent.network.parameters(), args['--clip-grad'])
@@ -349,34 +352,29 @@ def train(args: Dict[str, str]):
             baseline_loss.backward()
             torch.nn.utils.clip_grad_norm_(agent.baseline_network.parameters(), args['--clip-grad'])
             baseline_optimizer.step()
-
-            baseline_loss = baseline_loss.item()
-            network_loss = network_loss.item()
-            total_network_loss += network_loss
-            total_baseline_loss += baseline_loss
+            
+            baseline_loss_value = baseline_loss.item()
+            network_loss_value = network_loss.item()
+            total_baseline_loss += baseline_loss_value
+            total_network_loss += network_loss_value
             total_rewards += rewards
-            cumulative_examples += batch_size
 
             if train_iter % valid_niter == 0:
+                cumulative_examples += valid_niter
                 agent.eval()
                 print('epoch %d, iter %d, cum. total baseline loss %.2f, total network loss %.2f, total rewards %.2f, \
                         cum. examples %d , time elapsed %.2f sec' % 
                                                                                         (epoch, train_iter,
-                                                                                         total_baseline_loss / cumulative_examples,
-                                                                                         total_network_loss / cumulative_examples,
-                                                                                         total_rewards / cumulative_examples,
+                                                                                         total_baseline_loss / valid_niter,
+                                                                                         total_network_loss / valid_niter,
+                                                                                         total_rewards / valid_niter,
                                                                                          cumulative_examples,
                                                                                          time.time() - train_time), file=sys.stderr)
 
-                total_network_loss = total_baseline_loss = cumulative_examples = 0.
+                total_network_loss = total_baseline_loss = total_rewards = 0.
                 train_time = time.time()
                 valid_num += 1
-                torch.save(agent, model_save_path + '_train_iter')
-
-                # print('begin validation ...', file=sys.stderr)
-                # agent.eval()
-                # agent.validation()
-                # agent.train()
+                torch.save(agent, model_save_path + str(train_iter))
 
             if epoch == int(args['--max-epoch']):
                 print('reached maximum number of epochs!', file=sys.stderr)
@@ -445,6 +443,15 @@ def decode(args: Dict[str, str]):
             hyp_sent = ' '.join(top_hyp.value)
             f.write(hyp_sent + '\n')
 
+def test(args: Dict[str, str]):
+    test_data_src = read_corpus(args['TEST_SOURCE_FILE'], source='src')
+    test_data_tgt = read_corpus(args['TEST_TARGET_FILE'], source='tgt')
+
+    test_data = list(zip(test_data_src, test_data_tgt))
+
+    print(f"load model from {args['MODEL_PATH']}", file=sys.stderr)
+    model = torch.load(args['MODEL_PATH'])
+    model.test_greedy(test_data, args['OUTPUT_FILE'])
 
 def main():
     args = docopt(__doc__)
@@ -463,6 +470,8 @@ def main():
         train(args)
     elif args['decode']:
         decode(args)
+    elif args['test']:
+        test(args)
     else:
         raise RuntimeError(f'invalid mode')
 

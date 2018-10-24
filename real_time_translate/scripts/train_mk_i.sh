@@ -34,15 +34,14 @@ python main.py \
 
 python main.py \
     train \
-    --cuda \
     --seed 233 \
     --vocab ${vocab} \
     --train-src ${train_src} \
     --train-tgt ${train_tgt} \
     --dev-src ${dev_src} \
     --dev-tgt ${dev_tgt} \
-    --save-to ${work_dir}/model_rl.bin \
-    --valid-niter 2400 \
+    --save-to ${work_dir}/model_rl2.bin \
+    --valid-niter 480 \
     --batch-size 1 \
     --hidden-rl-size 512 \
     --uniform-init 0.1 \
@@ -53,16 +52,18 @@ python main.py \
     --average-proportion-baseline 2 \
     --consecutive-wait-baseline 2 \
     --clip-grad 5.0 \
-    --lr-decay 0.5 2>${work_dir}/err.log
+    --lr-decay 0.5 \
+    --network-lr=0.0001 \
+    --baseline-lr=0.0001 2>${work_dir}/err2.log
 
-# python main.py \
-#     decode \
-#     --seed 233 \
-#     --beam-size 5 \
-#     --max-decoding-time-step 100 \
-#     ${vocab} \
-#     ${work_dir}/model.bin \
-#     ${test_src} \
-#     ${work_dir}/decode.txt
+python main.py \
+    test \
+    --seed 233 \
+    --max-decoding-time-step 40 \
+    ${vocab} \
+    ${work_dir}/model_rl2.bin24000 \
+    ${test_src} \
+    ${test_tgt} \
+    ${work_dir}/decode.txt
 
 # perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode.txt
