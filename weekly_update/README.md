@@ -59,3 +59,18 @@ This document contains the weekly updates on the incremental machine translation
 | Zhun    | Implement the baseline incremental neural machine translation model. |                 |
 | Kangyan | Working on backend from Xinjian's existing code.                                                             |                 |
 
+### Oct 17, 2018 - Oct 24, 2018
+
+| Member  | Upcoming Tasks                                               | Completed Tasks |
+| ------- | ------------------------------------------------------------ | --------------- |
+| Ying    | Implement the baseline incremental neural machine translation model. |                 |
+| Zhun    | Implement the baseline incremental neural machine translation model. |                 |
+| Kangyan | Working on backend from Xinjian's existing code.                                                             |                 |
+
+### Oct 24, 2018 - Oct 31, 2018
+
+| Member  | Upcoming Tasks                                               | Completed Tasks |
+| ------- | ------------------------------------------------------------ | --------------- |
+| Ying    | Implement the baseline incremental neural machine translation model. |                 |
+| Zhun    | Implement the baseline incremental neural machine translation model. |                 |
+| Kangyan | Working on backend from Xinjian's existing code.                                                             |                 |
