@@ -1,6 +1,7 @@
 # customer
 baseline/mt/data/
 baseline/mt/.idea/
+baseline/mt/work_dir*
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
