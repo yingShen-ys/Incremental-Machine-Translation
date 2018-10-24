@@ -57,5 +57,5 @@ This document contains the weekly updates on the incremental machine translation
 | ------- | ------------------------------------------------------------ | --------------- |
 | Ying    | Implement the baseline incremental neural machine translation model. |                 |
 | Zhun    | Implement the baseline incremental neural machine translation model. |                 |
-| Kangyan |                                                              |                 |
+| Kangyan | Working on backend from Xinjian's existing code.                                                             |                 |
 
