@@ -69,11 +69,11 @@ This document contains the weekly updates on the incremental machine translation
 
 ### Oct 17, 2018 - Oct 24, 2018
 
-| Member  | Upcoming Tasks                                               | Completed Tasks |
-| ------- | ------------------------------------------------------------ | --------------- |
-| Ying    | Implement the baseline incremental neural machine translation model. |                 |
-| Zhun    | Prerocess incremental interpretation datasets | Discovered that interpretation datasets are not readily aligned for guiding model as expert |
-| Kangyan | Working on backend from Xinjian's existing code.                                                             |                 |
+| Member  | Upcoming Tasks                                               | Completed Tasks                                              |
+| ------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| Ying    | Implement the baseline incremental neural machine translation model. | Discovered that interpretation datasets are not readily aligned for guiding model as expert |
+| Zhun    | Prerocess incremental interpretation datasets                | Discovered that interpretation datasets are not readily aligned for guiding model as expert |
+| Kangyan | Working on backend from Xinjian's existing code.             |                                                              |
 
 ### Oct 24, 2018 - Oct 31, 2018
 
