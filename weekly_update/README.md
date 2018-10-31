@@ -73,12 +73,20 @@ This document contains the weekly updates on the incremental machine translation
 | ------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | Ying    | Implement the baseline incremental neural machine translation model. | Discovered that interpretation datasets are not readily aligned for guiding model as expert |
 | Zhun    | Prerocess incremental interpretation datasets                | Discovered that interpretation datasets are not readily aligned for guiding model as expert |
-| Kangyan | Working on backend from Xinjian's existing code.             |                                                              |
+| Kangyan | Working on backend from Xinjian's existing code.             | Worked on backend from Xinjian's existing code.              |
 
 ### Oct 24, 2018 - Oct 31, 2018
 
+| Member  | Upcoming Tasks                                               | Completed Tasks                                              |
+| ------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| Ying    | Implementing the baseline incremental neural machine translation model. | Exploring data augmentation methods.                         |
+| Zhun    | Running GIZA++ for word alignments on non-incremental datasets | Run GIZA++ for word alignments on non-incremental datasets   |
+| Kangyan | Working on backend from Xinjian's existing code.             | Training the baseline incremental neural machine translation model. |
+
+### Oct 31, 2018 - Nov 7, 2018
+
 | Member  | Upcoming Tasks                                               | Completed Tasks |
 | ------- | ------------------------------------------------------------ | --------------- |
-| Ying    | Implement the baseline incremental neural machine translation model. |                 |
-| Zhun    | Running GIZA++ for word alignments on non-incremental datasets |                 |
-| Kangyan | Working on backend from Xinjian's existing code.                                                             |                 |
+| Ying    | Exploring data augmentation methods.                         |                 |
+| Zhun    | Exploring data alignment methods.                            |                 |
+| Kangyan | Implementing the incremental neural machine translation model. |                 |
