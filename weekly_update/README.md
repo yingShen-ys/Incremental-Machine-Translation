@@ -69,24 +69,32 @@ This document contains the weekly updates on the incremental machine translation
 
 ### Oct 17, 2018 - Oct 24, 2018
 
-| Member  | Upcoming Tasks                                               | Completed Tasks                                              |
-| ------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| Ying    | Implement the baseline incremental neural machine translation model. | Discovered that interpretation datasets are not readily aligned for guiding model as expert |
-| Zhun    | Prerocess incremental interpretation datasets                | Discovered that interpretation datasets are not readily aligned for guiding model as expert |
-| Kangyan | Working on backend from Xinjian's existing code.             | Worked on backend from Xinjian's existing code.              |
+| Member  | Upcoming Tasks                                   | Completed Tasks                                              |
+| ------- | ------------------------------------------------ | ------------------------------------------------------------ |
+| Ying    | Examing the simultaneous interpretation data.    | Discovered that interpretation datasets are not readily aligned for guiding model as expert |
+| Zhun    | Prerocess incremental interpretation datasets    | Discovered that interpretation datasets are not readily aligned for guiding model as expert |
+| Kangyan | Working on backend from Xinjian's existing code. | Worked on backend from Xinjian's existing code.              |
 
 ### Oct 24, 2018 - Oct 31, 2018
 
 | Member  | Upcoming Tasks                                               | Completed Tasks                                              |
 | ------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| Ying    | Implementing the baseline incremental neural machine translation model. | Exploring data augmentation methods.                         |
+| Ying    | Exploring data augmentation methods for enlarging the current corpus. | Explored data augmentation methods.                          |
 | Zhun    | Running GIZA++ for word alignments on non-incremental datasets | Run GIZA++ for word alignments on non-incremental datasets   |
 | Kangyan | Working on backend from Xinjian's existing code.             | Training the baseline incremental neural machine translation model. |
 
 ### Oct 31, 2018 - Nov 7, 2018
 
+| Member  | Upcoming Tasks                                               | Completed Tasks                                              |
+| ------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| Ying    | Running fast alignment on the current corpus and exploring the back translation model to enlarge the corpus. | Ran fast alignment on the simultaneous interpretation corpus and installed the statistical machine translation model for back translation. |
+| Zhun    | Deriving expert action sequence for RL agent from aligned bilingual corpus | Re-ran alignments using a combined corpus of incremental and non-incremental translation datasets to obtain more reliable alignments for the interpretation dataset. |
+| Kangyan | Implementing the incremental neural machine translation model. | Debugging the incremental translation model                  |
+
+### Nov 7, 2018 - Nov 14, 2018
+
 | Member  | Upcoming Tasks                                               | Completed Tasks |
 | ------- | ------------------------------------------------------------ | --------------- |
-| Ying    | Exploring data augmentation methods.                         |                 |
-| Zhun    | Deriving expert action sequence for RL agent from aligned bilingual corpus                            |  Re-ran alignments using a combined corpus of incremental and non-incremental translation datasets to obtain more reliable alignments for the interpretation dataset. |
-| Kangyan | Implementing the incremental neural machine translation model. |  Debugging the incremental translation model  |
+| Ying    | Run back translation model to enlarge the corpus.            |                 |
+| Zhun    | Deriving expert action sequence for RL agent from aligned bilingual corpus |                 |
+| Kangyan | Implementing the incremental neural machine translation model. |                 |
