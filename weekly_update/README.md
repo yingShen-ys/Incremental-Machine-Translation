@@ -88,5 +88,5 @@ This document contains the weekly updates on the incremental machine translation
 | Member  | Upcoming Tasks                                               | Completed Tasks |
 | ------- | ------------------------------------------------------------ | --------------- |
 | Ying    | Exploring data augmentation methods.                         |                 |
-| Zhun    | Deriving expert action sequence for RL agent from aligned bilingual corpus                            |                 |
-| Kangyan | Implementing the incremental neural machine translation model. |                 |
+| Zhun    | Deriving expert action sequence for RL agent from aligned bilingual corpus                            |  Re-ran alignments using a combined corpus of incremental and non-incremental translation datasets to obtain more reliable alignments for the interpretation dataset. |
+| Kangyan | Implementing the incremental neural machine translation model. |  Debugging the incremental translation model  |
