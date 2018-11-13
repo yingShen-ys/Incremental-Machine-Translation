@@ -231,7 +231,146 @@ class LSTMSeq2seq(nn.Module):
         greedy_hyp = Hypothesis(sentence, scores)
         self.training = True  # turn training back on
         return [greedy_hyp] * beam_size
-    
+
+    def beam_search(self, src_sent, src_lens, beam_size=5, max_decoding_time_step=70, cuda=True, feed_embedding=False):
+        """
+        Given a single source sentence, perform beam search
+
+        Args:
+            src_sent: a single tokenized source sentence
+            beam_size: beam size
+            max_decoding_time_step: maximum number of time steps to unroll the decoding RNN
+
+        Returns:
+            hypotheses: a list of hypothesis, each hypothesis has two fields:
+            value: List[str]: the decoded target sentence, represented as a list of words
+            score: float: the log-likelihood of the target sentence
+        """
+        self.training = False # turn of training
+        if cuda:
+            torch.FloatTensor = torch.cuda.FloatTensor
+
+        decoded_beam_idx = []
+        bk_pointers = [[-1]]
+
+        batch_size = src_sent.size(0)
+        src_states, final_state = self.encode(src_sent, src_lens) # (1, src_lens, hidden)
+
+        # decode start token
+        start_token = src_sent.new_ones((1,)).long() * START_TOKEN_IDX # (batch_size,) should be </s>
+        vector = self.trg_embedding(start_token) # (batch_size, embedding_size)
+        vector = torch.cat((vector, vector.new_zeros(vector.size(0), self.state_size//self.num_layers)), dim=-1) # input feeding at first step
+        h, c = self.decoder_lstm_cell(vector, final_state)
+
+        # compute weighted sum of layers hidden states
+        # normalized_layer_weights = F.softmax(self.decoder_lstm_layer_unnorm_weights, dim=-1)
+        # reshaped_h = h.view(batch_size, self.decoder_layers, -1)
+        # h = torch.einsum('k,bkj->bj', (normalized_layer_weights, reshaped_h))
+
+        context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens, attn_func=self.attn_func)) # (batch_size, hidden_size (*2))
+        curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
+        curr_logprobs = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
+        # curr_ll = F.log_softmax(curr_logprobs, dim=-1) # transform logits into log-likelihoods
+        best_scores, best_score_ids = torch.topk(curr_logprobs, beam_size, dim=-1) # (batch_size, beam_size)
+        best_beam_scores = best_scores # (batch_size, beam_size)
+        bk_pointer = best_score_ids / self.trg_vocab_size  # (batch_size, beam_size)
+        best_score_ids = best_score_ids - bk_pointer * self.trg_vocab_size
+        decoded_beam_idx.append(best_score_ids)
+        _, prd_token = torch.max(curr_logprobs, dim=-1)
+
+        # expand h, c, src_states, curr_attn_vector for next beam_size tokens: (batch, ) -> (batch * beam_size, )
+        h = h.data.repeat(1, beam_size).view(-1, h.size(-1))
+        c = c.data.repeat(1, beam_size).view(-1, c.size(-1))
+        src_states = src_states.data.repeat(1, beam_size, 1).view(-1, src_states.size(1), src_states.size(2))
+        curr_attn_vector = curr_attn_vector.data.repeat(1, beam_size).view(-1, curr_attn_vector.size(-1))
+
+        survived_size = beam_size
+        survived_score = best_beam_scores
+        survived_pos = None
+        survived_id = decoded_beam_idx[-1].view(-1)
+        src_states_tmp = src_states
+        finished_scores = torch.cuda.FloatTensor([])
+        finished_pos = []
+
+        # decode target sentences
+        for t in range(1, max_decoding_time_step):
+            vectors = self.trg_embedding(survived_id.view(-1, survived_size)) # (batch_size, survived_size) -> (batch_size, survived_size, embedding_size)
+            vectors = vectors.view(-1, self.embedding_size) # (batch_size, survived_size, embedding_size) -> (batch_size * survived_size, embedding_size)
+            vectors = torch.cat((vectors, curr_attn_vector), dim=-1) # input feeding again...
+            h, c = self.decoder_lstm_cell(vectors, (h, c))
+
+            # compute weighted sum of layers hidden states
+            # normalized_layer_weights = F.softmax(self.decoder_lstm_layer_unnorm_weights, dim=-1)
+            # reshaped_h = h.view(batch_size * survived_size, self.decoder_layers, -1)
+            # h = torch.einsum('k,bkj->bj', (normalized_layer_weights, reshaped_h))
+
+            context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states_tmp, src_lens, attn_func=self.attn_func))
+
+            curr_attn_vector = self.dropout(self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1))) # the thing to feed in input feeding
+            curr_logprobs = self.decoder_output_layer(curr_attn_vector) # (batch_size, vocab_size)
+            # curr_ll = F.log_softmax(curr_logprobs, dim=-1) # transform logits into log-likelihoods
+            scores = (curr_logprobs + survived_score.view(-1, 1)).view(-1, self.trg_vocab_size*survived_size) # (batch_size, survived_size * vocab_size)
+            best_scores, best_score_ids = torch.topk(scores, beam_size, dim=-1) # (batch_size, beam_size)
+            best_beam_scores = best_scores
+            # recalculate bk_pointer and ids
+            bk_pointer = best_score_ids / self.trg_vocab_size # (batch_size, beam_size)
+            best_score_ids = best_score_ids - bk_pointer * self.trg_vocab_size
+            bk_pointer_o = bk_pointer.view(-1)
+            if survived_pos is not None: # recalculate bk_pointer
+                bk_pointer = survived_pos[bk_pointer]
+            # append decoded beam
+            bk_pointers.append(bk_pointer)
+            decoded_beam_idx.append(best_score_ids)
+
+            # check for </s>
+            end_id = best_score_ids.view(-1).data.eq(END_TOKEN_IDX)
+            survived_id = best_score_ids.view(-1)[~end_id]
+            survived_pos = (~end_id).nonzero().view(-1)
+            finished_num = end_id.nonzero().view(-1).size()[0]
+            survived_size = beam_size - finished_num
+            survived_score = best_beam_scores.view(-1)[~end_id]
+            
+            if t == max_decoding_time_step-1:
+                finished_scores = torch.cat((finished_scores, best_beam_scores.view(-1) / float(t)))
+                # finished_scores = torch.cat((finished_scores, best_beam_scores.view(-1)))
+                finished_pos.extend([(t, i) for i in range(0, beam_size)])
+            elif finished_num > 0: # add finished sentence
+                finished_scores = torch.cat((finished_scores, best_beam_scores.view(-1)[end_id] / float(t)))
+                # finished_scores = torch.cat((finished_scores, best_beam_scores.view(-1)[end_id]))
+                finished_pos.extend([(t, end_id.nonzero().view(-1)[i].item()) for i in range(0, finished_num)])
+
+            if survived_size == 0:
+                break
+
+            # prepare h, c based on bk_pointer
+            prev_id = bk_pointer_o.view(-1)[survived_pos]
+            h = h[prev_id]
+            curr_attn_vector = curr_attn_vector[prev_id]
+            c = c[prev_id]
+            src_states_tmp = src_states[:survived_size, :, :]
+
+            assert survived_id.size()[0] == h.size()[0]
+
+        # sort finished score and finished pos
+        best_scores, best_score_ids = torch.topk(torch.FloatTensor(finished_scores.cpu()), beam_size)
+        best_score_pos = [finished_pos[i.item()] for i in best_score_ids]
+
+        # back track
+        beam_hyps = []
+        for b in range(0, beam_size):
+            token_pos = best_score_pos[b] # (t, i)
+            pos = token_pos[1]
+            sentence = []
+            for bk_i in range(token_pos[0], 0, -1):
+                pos = bk_pointers[bk_i][0, pos].item()
+                token = decoded_beam_idx[bk_i - 1][0, pos].item()
+                sentence.append(token)
+
+            sentence = list(map(lambda x: self.vocab.tgt.id2word[x], reversed(sentence)))
+            beam_hyps.append(Hypothesis(sentence, best_scores[b].item()))
+        self.training = True # turn training back on
+        return beam_hyps
+
     @staticmethod
     def compute_attention(curr_state, src_states, src_lens, attn_func, value_func=None):
         '''
@@ -282,7 +421,7 @@ class LSTMSeq2seq(nn.Module):
         """
         self.training = False
         cum_loss = 0.
-        cum_tgt_words = 0.
+        cum_trg_words = 0.
 
         # you may want to wrap the following code using a context manager provided
         # by the NN library to signal the backend to not to keep gradient information
@@ -291,24 +430,24 @@ class LSTMSeq2seq(nn.Module):
         if cuda:
             torch.LongTensor = torch.cuda.LongTensor
 
-        for src_sents, tgt_sents in batch_iter(dev_data, batch_size):
-            tgt_word_num_to_predict = sum(len(s[1:]) for s in tgt_sents)  # omitting the leading `<s>`
-            cum_tgt_words += tgt_word_num_to_predict
+        for src_sents, trg_sents in batch_iter(dev_data, batch_size):
+            trg_word_num_to_predict = sum(len(s[1:]) for s in trg_sents)  # omitting the leading `<s>`
+            cum_trg_words += trg_word_num_to_predict
             src_lens = torch.LongTensor(list(map(len, src_sents)))
-            trg_lens = torch.LongTensor(list(map(len, tgt_sents)))
+            trg_lens = torch.LongTensor(list(map(len, trg_sents)))
 
             # these padding functions modify data in-place
             src_sents = pad(self.vocab.src.words2indices(src_sents))
-            tgt_sents = pad(self.vocab.tgt.words2indices(tgt_sents))
+            trg_sents = pad(self.vocab.tgt.words2indices(trg_sents))
 
             src_sents = torch.LongTensor(src_sents)
-            tgt_sents = torch.LongTensor(tgt_sents)
-            loss = -self.forward(src_sents, src_lens, tgt_sents, trg_lens).sum()
+            trg_sents = torch.LongTensor(trg_sents)
+            loss = -self.forward(src_sents, src_lens, trg_sents, trg_lens).sum()
 
             loss = loss.item()
             cum_loss += loss
 
-        ppl = np.exp(cum_loss / cum_tgt_words)
+        ppl = np.exp(cum_loss / cum_trg_words)
         self.training = True
         return ppl
     

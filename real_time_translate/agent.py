@@ -2,6 +2,7 @@ import numpy as np
 import math
 import torch
 import torch.nn as nn
+import sys
 
 from model import LSTMSeq2seq
 from bleu import sentence_bleu
@@ -74,11 +75,12 @@ class PolicyGradient(nn.Module):
     def load_pretrain_model_weight(self, pretrain_model_path):
         pretrain_model = LSTMSeq2seq.load(pretrain_model_path)
         self.model = LSTMSeq2seq(pretrain_model.embedding_size, pretrain_model.hidden_size, self.vocab, pretrain_model.dropout.p)
-        own_state = self.model.state_dict()
-        for name, param in pretrain_model.state_dict().items():
-            if isinstance(param, nn.Parameter):
-                param = param.data
-            own_state[name].copy_(param)
+        self.model.load_state_dict(pretrain_model.state_dict())
+        # own_state = self.model.state_dict()
+        # for name, param in pretrain_model.state_dict().items():
+        #     if isinstance(param, nn.Parameter):
+        #         param = param.data
+        #     own_state[name].copy_(param)
 
     def compute_full_BLEU(self, golden, prediction):
         return sentence_bleu(golden, prediction)[1]
@@ -122,7 +124,6 @@ class PolicyGradient(nn.Module):
             # context_vector: B x batch_lens x hidden_size
             # h: B x batch_lens x hidden_size
             # prd_embedding: B x batch_lens x embedding_size
-            
             # steps: 
             # 1. compute actions
             observation = torch.cat([context_vector, decoder_state[0], prd_embedding], dim = 1)
@@ -134,15 +135,15 @@ class PolicyGradient(nn.Module):
             
             m = torch.distributions.Categorical(action_prob)
             action = m.sample()
-            actions.append(action.data[0])
+            actions.append(action.item())
 
             # 2. For READ, increment batch_lens
             #    For WRITE, increment decoding_steps
-            if action.data[0] == 0:
-                # READ operations: 
+            if action.item() == 0:
+                # READ operations:
                 # 1. increment batch_lens
                 batch_lens += 1
-                # 2.update 
+                # 2.update
                 consecutive_waits += 1
                 # 3. set ending flag for reading the next token of </s>
                 if batch_lens == len(src[0]) + 1:
@@ -195,20 +196,20 @@ class PolicyGradient(nn.Module):
 
         if not isTest:
             return baseline_loss, network_loss, torch.sum(new_rewards)
-        
+
         return baseline_loss, network_loss, torch.sum(new_rewards), output_tokens, actions
-    
+
     def validation(self, dev_data, batch_size=1):
         total_network_loss = total_baseline_loss = total_rewards = 0
         for src_sents, tgt_sents in batch_iter(dev_data, batch_size):
             tgt_word_num_to_predict = sum(len(s[1:]) for s in tgt_sents)  # omitting the leading `<s>`
             src_sents = torch.LongTensor(src_sents)
             tgt_sents = torch.LongTensor(tgt_sents)
-            baseline_loss, network_loss, rewards = model(src_sents, tgt_sents)
+            baseline_loss, network_loss, rewards = self.forward(src_sents, tgt_sents)
             total_network_loss += network_loss.item()
             total_baseline_loss += baseline_loss.item()
             total_rewards += rewards
-        
+
         print("validation baseline loss %.2f, network loss %.2f, rewards %.2f" %
             (total_baseline_loss / len(dev_data),
             total_network_loss / len(dev_data),
@@ -241,10 +242,9 @@ class PolicyGradient(nn.Module):
             f.write(' '.join(tgt_sents[0]) + '\n')
             f.write(str(bleu_score) + '\n')
             f.write('\n')
-        
+
         f.close()
-                
         print("validation baseline loss %.2f, network loss %.2f, rewards %.2f" %
-            (total_baseline_loss / len(dev_data),
-            total_network_loss / len(dev_data),
-            total_rewards / len(dev_data)), file=sys.stderr)
+            (total_baseline_loss / len(test_data),
+            total_network_loss / len(test_data),
+            total_rewards / len(test_data)), file=sys.stderr)
