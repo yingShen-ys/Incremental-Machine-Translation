@@ -46,6 +46,7 @@ Options:
     --max-decoding-time-step=<int>          maximum number of decoding time steps [default: 70]
     --network-lr=<float>                    learning rate [default: 0.001]
     --baseline-lr=<float>                   learning rate [default: 0.001]
+    --update-freq=<int>                     update frequency of RL agent [default: 35]
 """
 
 import math
@@ -67,6 +68,7 @@ from vocab import Vocab, VocabEntry
 from model import LSTMSeq2seq
 from torch.nn.init import uniform_
 from agent import PolicyGradient
+from pdb import set_trace
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
 Tensor = torch.tensor
@@ -319,6 +321,8 @@ def train(args: Dict[str, str]):
     epoch = valid_num = cumulative_examples = 0
     baseline_losses = network_losses = []
     train_time = time.time()
+
+    total_avg_prop_rewards = total_consec_wait_rewards = total_full_bleu_rewards = total_delta_bleu_rewards = total_baseline_rewards = 0
     print('begin Policy Gradient training')
 
     while True:
@@ -341,17 +345,20 @@ def train(args: Dict[str, str]):
             train_iter += 1
 
             # (batch_size,)
-            baseline_loss, network_loss, rewards = agent(src_sents, tgt_sents)
+            (baseline_loss, network_loss, rewards, baseline_rewards, avg_prop_rewards,
+             consec_wait_rewards, full_bleu_rewards, delta_bleu_rewards) = agent(src_sents, tgt_sents)
             
-            network_optimizer.zero_grad()
-            network_loss.backward(retain_graph=True)
-            torch.nn.utils.clip_grad_norm_(agent.network.parameters(), args['--clip-grad'])
-            network_optimizer.step()
+            # need to check if gradients work as expected (if .detach() did the trick)
+            (network_loss / int(args['--update-freq'])).backward(retain_graph=True)
+            # torch.nn.utils.clip_grad_norm_(agent.network.parameters(), args['--clip-grad'])
+            (baseline_loss / int(args['--update-freq'])).backward()
+            # torch.nn.utils.clip_grad_norm_(agent.baseline_network.parameters(), args['--clip-grad'])
 
-            baseline_optimizer.zero_grad()
-            baseline_loss.backward()
-            torch.nn.utils.clip_grad_norm_(agent.baseline_network.parameters(), args['--clip-grad'])
-            baseline_optimizer.step()
+            if train_iter % int(args['--update-freq']) == 0:
+                network_optimizer.step()
+                baseline_optimizer.step()
+                baseline_optimizer.zero_grad()
+                network_optimizer.zero_grad()
             
             baseline_loss_value = baseline_loss.item()
             network_loss_value = network_loss.item()
@@ -359,19 +366,28 @@ def train(args: Dict[str, str]):
             total_network_loss += network_loss_value
             total_rewards += rewards
 
+            total_avg_prop_rewards += avg_prop_rewards
+            total_consec_wait_rewards += consec_wait_rewards
+            total_full_bleu_rewards += full_bleu_rewards
+            total_delta_bleu_rewards += delta_bleu_rewards
+            total_baseline_rewards += baseline_rewards
+
             if train_iter % valid_niter == 0:
                 cumulative_examples += valid_niter
                 agent.eval()
-                print('epoch %d, iter %d, cum. total baseline loss %.2f, total network loss %.2f, total rewards %.2f, \
-                        cum. examples %d , time elapsed %.2f sec' % 
+                print('epoch %d, iter %d, cum. total baseline loss %.2f, total network loss %.2f, total rewards %.2f, cum. examples %d , time elapsed %.2f sec' %
                                                                                         (epoch, train_iter,
                                                                                          total_baseline_loss / valid_niter,
                                                                                          total_network_loss / valid_niter,
                                                                                          total_rewards / valid_niter,
                                                                                          cumulative_examples,
                                                                                          time.time() - train_time), file=sys.stderr)
+                
+                print('reward breakdown: AP {0:.2f}, CW {1:.2f}, FB {2:.2f}, DB {3:.2f}, baseline {4:.2f}'.format(total_avg_prop_rewards, total_consec_wait_rewards, total_full_bleu_rewards, total_delta_bleu_rewards, total_baseline_rewards))
 
+                # set_trace()
                 total_network_loss = total_baseline_loss = total_rewards = 0.
+                total_avg_prop_rewards = total_consec_wait_rewards = total_full_bleu_rewards = total_delta_bleu_rewards = total_baseline_rewards = 0
                 train_time = time.time()
                 valid_num += 1
                 torch.save(agent, model_save_path + str(train_iter))
@@ -447,7 +463,7 @@ def test(args: Dict[str, str]):
     test_data_src = read_corpus(args['TEST_SOURCE_FILE'], source='src')
     test_data_tgt = read_corpus(args['TEST_TARGET_FILE'], source='tgt')
 
-    test_data = list(zip(test_data_src, test_data_tgt))
+    test_data = list(zip(test_data_src, test_data_tgt))[:100]
 
     print(f"load model from {args['MODEL_PATH']}", file=sys.stderr)
     model = torch.load(args['MODEL_PATH'])
