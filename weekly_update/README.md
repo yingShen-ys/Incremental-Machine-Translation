@@ -105,4 +105,4 @@ This document contains the weekly updates on the incremental machine translation
 | ------- | ------------------------------------------------------------ | --------------- |
 | Ying    | Implementing incremental neural machine translation mode     |                 |
 | Zhun    | Debugging the reinforcement learning agent                   |                 |
-| Kangyan | Implementing the incremental neural machine translation model. |                 |
+| Kangyan | Implementing another incremental neural machine translation model. |                |
