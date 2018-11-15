@@ -303,6 +303,14 @@ def train(args: Dict[str, str]):
                  float(args['--average-proportion-baseline']), 
                  float(args['--consecutive-wait-baseline']))
 
+    # torch.save(agent.model.state_dict(), "model_params.pt")
+    # model = LSTMSeq2seq(embedding_size=int(args['--embed-size']),
+    #                     hidden_size=int(args['--hidden-size']),
+    #                     dropout_rate=float(args['--dropout']),
+    #                     vocab=vocab)
+    # model.load_state_dict(agent.model.state_dict())
+    # agent.model = model
+
     agent.model.set_forward_function(False)
     network_optimizer = torch.optim.Adam(list(agent.network.parameters()), lr=float(args['--network-lr']))
     baseline_optimizer = torch.optim.Adam(list(agent.baseline_network.parameters()), lr=float(args['--baseline-lr']))
@@ -312,9 +320,9 @@ def train(args: Dict[str, str]):
     baseline_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(baseline_optimizer, mode='max', factor=float(args['--lr-decay']), patience=int(args['--patience']), verbose=True)
     baseline_optimizer_state_copy = copy.deepcopy(baseline_optimizer.state_dict())
 
-    # uniformly initialize all parameters
-    for parameter in agent.parameters():
-        uniform_(parameter, a=-float(args['--uniform-init']), b=float(args['--uniform-init']))
+    # # uniformly initialize all parameters
+    # for parameter in agent.parameters():
+    #     uniform_(parameter, a=-float(args['--uniform-init']), b=float(args['--uniform-init']))
 
     num_trial = 0
     train_iter = total_network_loss = total_baseline_loss = total_rewards = 0
@@ -348,17 +356,25 @@ def train(args: Dict[str, str]):
             (baseline_loss, network_loss, rewards, baseline_rewards, avg_prop_rewards,
              consec_wait_rewards, full_bleu_rewards, delta_bleu_rewards) = agent(src_sents, tgt_sents)
             
-            # need to check if gradients work as expected (if .detach() did the trick)
-            (network_loss / int(args['--update-freq'])).backward(retain_graph=True)
-            # torch.nn.utils.clip_grad_norm_(agent.network.parameters(), args['--clip-grad'])
-            (baseline_loss / int(args['--update-freq'])).backward()
-            # torch.nn.utils.clip_grad_norm_(agent.baseline_network.parameters(), args['--clip-grad'])
+            # # need to check if gradients work as expected (if .detach() did the trick)
+            # (network_loss / int(args['--update-freq'])).backward(retain_graph=True)
+            # # torch.nn.utils.clip_grad_norm_(agent.network.parameters(), args['--clip-grad'])
+            # (baseline_loss / int(args['--update-freq'])).backward()
+            # # torch.nn.utils.clip_grad_norm_(agent.baseline_network.parameters(), args['--clip-grad'])
 
-            if train_iter % int(args['--update-freq']) == 0:
-                network_optimizer.step()
-                baseline_optimizer.step()
-                baseline_optimizer.zero_grad()
-                network_optimizer.zero_grad()
+            # if train_iter % int(args['--update-freq']) == 0:
+            #     network_optimizer.step()
+            #     baseline_optimizer.step()
+            #     baseline_optimizer.zero_grad()
+            #     network_optimizer.zero_grad()
+
+            network_optimizer.zero_grad()
+            network_loss.backward(retain_graph=True)
+            network_optimizer.step()
+
+            baseline_optimizer.zero_grad()
+            baseline_loss.backward()
+            baseline_optimizer.step()
             
             baseline_loss_value = baseline_loss.item()
             network_loss_value = network_loss.item()
@@ -366,6 +382,7 @@ def train(args: Dict[str, str]):
             total_network_loss += network_loss_value
             total_rewards += rewards
 
+            # set_trace()
             total_avg_prop_rewards += avg_prop_rewards
             total_consec_wait_rewards += consec_wait_rewards
             total_full_bleu_rewards += full_bleu_rewards
@@ -401,12 +418,13 @@ def beam_search(model: object, test_data_src: List[List[str]], beam_size: int, m
 
     model.to('cuda')
     hypotheses = []
+    print("BEAM SEARCH IS REPLACED BY GREEDY SEARCH")
     for src_sent in tqdm(test_data_src, desc='Decoding', file=sys.stdout):
         src_sent = [src_sent] # other parts of the code treat this as a list of sentences...
         src_len = torch.LongTensor(list(map(len, src_sent))).to('cuda')
         src_sent = pad(vocab.src.words2indices(src_sent))
         src_sent = torch.LongTensor(src_sent).to('cuda')
-        example_hyps = model.beam_search(src_sent, src_lens=src_len, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step, cuda=cuda)
+        example_hyps = model.greedy_search(src_sent, src_lens=src_len, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step, cuda=cuda)
 
         hypotheses.append(example_hyps)
 
