@@ -93,8 +93,16 @@ This document contains the weekly updates on the incremental machine translation
 
 ### Nov 7, 2018 - Nov 14, 2018
 
+| Member  | Upcoming Tasks                                               | Completed Tasks                                              |
+| ------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| Ying    | Exploring data augmentation                                  | Run syntax-based rewriting on JA-EN corpus                   |
+| Zhun    | Deriving expert action sequence for RL agent from aligned bilingual corpus | Switched to debugging reinforcement learning agent since it is not working properly |
+| Kangyan | Implementing the incremental neural machine translation model. |                                                              |
+
+### Nov 14, 2018 - Nov 21, 2018
+
 | Member  | Upcoming Tasks                                               | Completed Tasks |
 | ------- | ------------------------------------------------------------ | --------------- |
-| Ying    | Run back translation model to enlarge the corpus.            |                 |
-| Zhun    | Deriving expert action sequence for RL agent from aligned bilingual corpus |                 |
-| Kangyan | Implementing the incremental neural machine translation model. |                 |
+| Ying    | Implementing incremental neural machine translation mode     |                 |
+| Zhun    | Debugging the reinforcement learning agent                   |                 |
+| Kangyan | Implementing another incremental neural machine translation model. |                |
