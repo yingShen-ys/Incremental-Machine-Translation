@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 # Natural Language Toolkit: BLEU Score
 #
-# Copyright (C) 2001-2016 NLTK Project
+# Copyright (C) 2001-2018 NLTK Project
 # Authors: Chin Yee Lee, Hengfeng Li, Ruxin Hou, Calvin Tanujaya Lim
-# Contributors: Dmitrijs Milajevs, Liling Tan
+# Contributors: Björn Mattsson, Dmitrijs Milajevs, Liling Tan
 # URL: <http://nltk.org/>
 # For license information, see LICENSE.TXT
 
@@ -11,7 +11,9 @@
 from __future__ import division
 
 import math
+import sys
 import fractions
+import warnings
 from collections import Counter
 
 from nltk.util import ngrams
@@ -24,7 +26,7 @@ except TypeError:
 
 
 def sentence_bleu(references, hypothesis, weights=(0.25, 0.25, 0.25, 0.25),
-                  smoothing_function=None):
+                  smoothing_function=None, auto_reweigh=False):
     """
     Calculate BLEU score (Bilingual Evaluation Understudy) from
     Papineni, Kishore, Salim Roukos, Todd Ward, and Wei-Jing Zhu. 2002.
@@ -55,17 +57,32 @@ def sentence_bleu(references, hypothesis, weights=(0.25, 0.25, 0.25, 0.25),
     >>> sentence_bleu([reference1, reference2, reference3], hypothesis1) # doctest: +ELLIPSIS
     0.5045...
 
-    >>> sentence_bleu([reference1, reference2, reference3], hypothesis2) # doctest: +ELLIPSIS
-    0.3969...
+    If there is no ngrams overlap for any order of n-grams, BLEU returns the
+    value 0. This is because the precision for the order of n-grams without
+    overlap is 0, and the geometric mean in the final BLEU score computation
+    multiplies the 0 with the precision of other n-grams. This results in 0
+    (independently of the precision of the othe n-gram orders). The following
+    example has zero 3-gram and 4-gram overlaps:
 
-    The default BLEU calculates a score for up to 4grams using uniform
-    weights. To evaluate your translations with higher/lower order ngrams,
-    use customized weights. E.g. when accounting for up to 6grams with uniform
-    weights:
+    >>> round(sentence_bleu([reference1, reference2, reference3], hypothesis2),4) # doctest: +ELLIPSIS
+    0.0
 
-    >>> weights = (0.1666, 0.1666, 0.1666, 0.1666, 0.1666)
-    >>> sentence_bleu([reference1, reference2, reference3], hypothesis1, weights)
-    0.45838627164939455
+    To avoid this harsh behaviour when no ngram overlaps are found a smoothing
+    function can be used.
+
+    >>> chencherry = SmoothingFunction()
+    >>> sentence_bleu([reference1, reference2, reference3], hypothesis2,
+    ...     smoothing_function=chencherry.method1) # doctest: +ELLIPSIS
+    0.0370...
+
+    The default BLEU calculates a score for up to 4-grams using uniform
+    weights (this is called BLEU-4). To evaluate your translations with
+    higher/lower order ngrams, use customized weights. E.g. when accounting
+    for up to 5-grams with uniform weights (this is called BLEU-5) use:
+
+    >>> weights = (1./5., 1./5., 1./5., 1./5., 1./5.)
+    >>> sentence_bleu([reference1, reference2, reference3], hypothesis1, weights) # doctest: +ELLIPSIS
+    0.3920...
 
     :param references: reference sentences
     :type references: list(list(str))
@@ -73,14 +90,19 @@ def sentence_bleu(references, hypothesis, weights=(0.25, 0.25, 0.25, 0.25),
     :type hypothesis: list(str)
     :param weights: weights for unigrams, bigrams, trigrams and so on
     :type weights: list(float)
+    :param smoothing_function:
+    :type smoothing_function: SmoothingFunction
+    :param auto_reweigh: Option to re-normalize the weights uniformly.
+    :type auto_reweigh: bool
     :return: The sentence-level BLEU score.
     :rtype: float
     """
-    return corpus_bleu([references], [hypothesis], weights, smoothing_function)
+    return corpus_bleu([references], [hypothesis],
+                       weights, smoothing_function, auto_reweigh)
 
 
 def corpus_bleu(list_of_references, hypotheses, weights=(0.25, 0.25, 0.25, 0.25),
-                smoothing_function=None):
+                smoothing_function=None, auto_reweigh=False):
     """
     Calculate a single corpus-level BLEU score (aka. system-level BLEU) for all
     the hypotheses and their respective references.
@@ -121,12 +143,16 @@ def corpus_bleu(list_of_references, hypotheses, weights=(0.25, 0.25, 0.25, 0.25)
     >>> (score1 + score2) / 2 # doctest: +ELLIPSIS
     0.6223...
 
-    :param references: a corpus of lists of reference sentences, w.r.t. hypotheses
-    :type references: list(list(list(str)))
+    :param list_of_references: a corpus of lists of reference sentences, w.r.t. hypotheses
+    :type list_of_references: list(list(list(str)))
     :param hypotheses: a list of hypothesis sentences
     :type hypotheses: list(list(str))
     :param weights: weights for unigrams, bigrams, trigrams and so on
     :type weights: list(float)
+    :param smoothing_function:
+    :type smoothing_function: SmoothingFunction
+    :param auto_reweigh: Option to re-normalize the weights uniformly.
+    :type auto_reweigh: bool
     :return: The corpus-level BLEU score.
     :rtype: float
     """
@@ -136,18 +162,15 @@ def corpus_bleu(list_of_references, hypotheses, weights=(0.25, 0.25, 0.25, 0.25)
     p_denominators = Counter()  # Key = ngram order, and value = no. of ngram in ref.
     hyp_lengths, ref_lengths = 0, 0
 
-    assert len(list_of_references) == len(
-        hypotheses), "The number of hypotheses and their reference(s) should be the same"
+    assert len(list_of_references) == len(hypotheses), "The number of hypotheses and their reference(s) should be the " \
+                                                       "same "
 
     # Iterate through each hypothesis and their corresponding references.
     for references, hypothesis in zip(list_of_references, hypotheses):
         # For each order of ngram, calculate the numerator and
         # denominator for the corpus-level modified precision.
         for i, _ in enumerate(weights, start=1):
-            if len(hypothesis) >= i:
-                p_i = modified_precision(references, hypothesis, i)
-            else:
-                p_i = Fraction(0, 1, _normalize=False)
+            p_i = modified_precision(references, hypothesis, i)
             p_numerators[i] += p_i.numerator
             p_denominators[i] += p_i.denominator
 
@@ -160,6 +183,12 @@ def corpus_bleu(list_of_references, hypotheses, weights=(0.25, 0.25, 0.25, 0.25)
     # Calculate corpus-level brevity penalty.
     bp = brevity_penalty(ref_lengths, hyp_lengths)
 
+    # Uniformly re-weighting based on maximum hypothesis lengths if largest
+    # order of n-grams < 4 and weights is set at default.
+    if auto_reweigh:
+        if hyp_lengths < 4 and weights == (0.25, 0.25, 0.25, 0.25):
+            weights = (1 / hyp_lengths,) * hyp_lengths
+
     # Collects the various precision values for the different ngram orders.
     p_n = [Fraction(p_numerators[i], p_denominators[i], _normalize=False)
            for i, _ in enumerate(weights, start=1)]
@@ -170,23 +199,18 @@ def corpus_bleu(list_of_references, hypotheses, weights=(0.25, 0.25, 0.25, 0.25)
     if p_numerators[1] == 0:
         return 0, 0
 
-    # Smoothen the modified precision.
-    # Note: smooth_precision() converts values into float.
+    # If there's no smoothing, set use method0 from SmoothinFunction class.
     if not smoothing_function:
         smoothing_function = SmoothingFunction().method0
-    p_n = smoothing_function(p_n, references=references,
-                             hypothesis=hypothesis, hyp_len=hyp_len)
-
-    # Calculates the overall modified precision for all ngrams.
-    # By sum of the product of the weights and the respective *p_n*
-    s = (w * math.log(p_i) for w, p_i in zip(weights, p_n)
-         if p_i.numerator != 0)
-
-    # return bp * math.exp(math.fsum(s))
-    bleu  = math.exp(math.fsum(s))
-    bleup = bleu * bp
-
-    return bleu, bleup
+    # Smoothen the modified precision.
+    # Note: smoothing_function() may convert values into floats;
+    #       it tries to retain the Fraction object as much as the
+    #       smoothing method allows.
+    p_n = smoothing_function(p_n, references=references, hypothesis=hypothesis,
+                             hyp_len=hyp_len)
+    s = (w_i * math.log(p_i) for w_i, p_i in zip(weights, p_n))
+    s =  math.exp(math.fsum(s))
+    return s, bp * s
 
 
 def modified_precision(references, hypothesis, n):
@@ -274,14 +298,14 @@ def modified_precision(references, hypothesis, n):
     :return: BLEU's modified precision for the nth order ngram.
     :rtype: Fraction
     """
-    # Extracts all ngrams in hypothesis.
-    counts = Counter(ngrams(hypothesis, n))
-
+    # Extracts all ngrams in hypothesis
+    # Set an empty Counter if hypothesis is empty.
+    counts = Counter(ngrams(hypothesis, n)) if len(hypothesis) >= n else Counter()
     # Extract a union of references' counts.
-    ## max_counts = reduce(or_, [Counter(ngrams(ref, n)) for ref in references])
+    # max_counts = reduce(or_, [Counter(ngrams(ref, n)) for ref in references])
     max_counts = {}
     for reference in references:
-        reference_counts = Counter(ngrams(reference, n))
+        reference_counts = Counter(ngrams(reference, n)) if len(reference) >= n else Counter()
         for ngram in counts:
             max_counts[ngram] = max(max_counts.get(ngram, 0),
                                     reference_counts[ngram])
@@ -306,8 +330,8 @@ def closest_ref_length(references, hyp_len):
 
     :param references: A list of reference translations.
     :type references: list(list(str))
-    :param hypothesis: The length of the hypothesis.
-    :type hypothesis: int
+    :param hyp_len: The length of the hypothesis.
+    :type hyp_len: int
     :return: The length of the reference that's closest to the hypothesis.
     :rtype: int
     """
@@ -396,7 +420,7 @@ def brevity_penalty(closest_ref_len, hyp_len):
     :type hyp_len: int
     :param closest_ref_len: The length of the closest reference for a single
     hypothesis OR the sum of all the closest references for every hypotheses.
-    :type closest_reference_len: int
+    :type closest_ref_len: int
     :return: BLEU's brevity penalty.
     :rtype: float
     """
@@ -447,7 +471,7 @@ class SmoothingFunction:
         >>> print (sentence_bleu([reference1], hypothesis1, smoothing_function=chencherry.method5)) # doctest: +ELLIPSIS
         0.4905...
         >>> print (sentence_bleu([reference1], hypothesis1, smoothing_function=chencherry.method6)) # doctest: +ELLIPSIS
-        0.1801...
+        0.4135...
         >>> print (sentence_bleu([reference1], hypothesis1, smoothing_function=chencherry.method7)) # doctest: +ELLIPSIS
         0.4905...
 
@@ -463,8 +487,27 @@ class SmoothingFunction:
         self.k = k
 
     def method0(self, p_n, *args, **kwargs):
-        """ No smoothing. """
-        return p_n
+        """
+        No smoothing.
+        """
+        p_n_new = []
+        for i, p_i in enumerate(p_n):
+            if p_i.numerator != 0:
+                p_n_new.append(p_i)
+            else:
+                _msg = str("\nThe hypothesis contains 0 counts of {}-gram overlaps.\n"
+                           "Therefore the BLEU score evaluates to 0, independently of\n"
+                           "how many N-gram overlaps of lower order it contains.\n"
+                           "Consider using lower n-gram order or use "
+                           "SmoothingFunction()").format(i+1)
+                warnings.warn(_msg)
+                # When numerator==0 where denonminator==0 or !=0, the result
+                # for the precision score should be equal to 0 or undefined.
+                # Due to BLEU geometric mean computation in logarithm space,
+                # we we need to take the return sys.float_info.min such that
+                # math.log(sys.float_info.min) returns a 0 precision score.
+                p_n_new.append(sys.float_info.min)
+        return p_n_new
 
     def method1(self, p_n, *args, **kwargs):
         """
@@ -504,7 +547,7 @@ class SmoothingFunction:
                 incvnt += 1
         return p_n
 
-    def method4(self, p_n, references, hypothesis, hyp_len):
+    def method4(self, p_n, references, hypothesis, hyp_len, *args, **kwargs):
         """
         Smoothing method 4:
         Shorter translations may have inflated precision values due to having
@@ -512,14 +555,13 @@ class SmoothingFunction:
         smaller smoothed counts. Instead of scaling to 1/(2^k), Chen and Cherry
         suggests dividing by 1/ln(len(T)), where T is the length of the translation.
         """
-        incvnt = 1
         for i, p_i in enumerate(p_n):
             if p_i.numerator == 0 and hyp_len != 0:
-                p_n[i] = incvnt * self.k / math.log(hyp_len)  # Note that this K is different from the K from NIST.
-                incvnt += 1
+                incvnt = i + 1 * self.k / math.log(hyp_len)  # Note that this K is different from the K from NIST.
+                p_n[i] = 1 / incvnt
         return p_n
 
-    def method5(self, p_n, references, hypothesis, hyp_len):
+    def method5(self, p_n, references, hypothesis, hyp_len, *args, **kwargs):
         """
         Smoothing method 5:
         The matched counts for similar values of n should be similar. To a
@@ -535,24 +577,33 @@ class SmoothingFunction:
             m[i] = p_n[i]
         return p_n
 
-    def method6(self, p_n, references, hypothesis, hyp_len):
+    def method6(self, p_n, references, hypothesis, hyp_len, *args, **kwargs):
         """
         Smoothing method 6:
         Interpolates the maximum likelihood estimate of the precision *p_n* with
         a prior estimate *pi0*. The prior is estimated by assuming that the ratio
-        between pn and pn−1 will be the same as that between pn−1 and pn−2.
+        between pn and pn−1 will be the same as that between pn−1 and pn−2; from
+        Gao and He (2013) Training MRF-Based Phrase Translation Models using
+        Gradient Ascent. In NAACL.
         """
+        # This smoothing only works when p_1 and p_2 is non-zero.
+        # Raise an error with an appropriate message when the input is too short
+        # to use this smoothing technique.
+        assert p_n[2], "This smoothing method requires non-zero precision for bigrams."
         for i, p_i in enumerate(p_n):
-            if i in [1, 2]:  # Skips the first 2 orders of ngrams.
+            if i in [0, 1]:  # Skips the first 2 orders of ngrams.
                 continue
             else:
                 pi0 = 0 if p_n[i - 2] == 0 else p_n[i - 1] ** 2 / p_n[i - 2]
+                # No. of ngrams in translation that matches the reference.
+                m = p_i.numerator
                 # No. of ngrams in translation.
                 l = sum(1 for _ in ngrams(hypothesis, i + 1))
-                p_n[i] = (p_i + self.alpha * pi0) / (l + self.alpha)
+                # Calculates the interpolated precision.
+                p_n[i] = (m + self.alpha * pi0) / (l + self.alpha)
         return p_n
 
-    def method7(self, p_n, references, hypothesis, hyp_len):
+    def method7(self, p_n, references, hypothesis, hyp_len, *args, **kwargs):
         """
         Smoothing method 6:
         Interpolates the maximum likelihood estimate of the precision *p_n* with

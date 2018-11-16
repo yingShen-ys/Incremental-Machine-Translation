@@ -2,6 +2,14 @@
 baseline/mt/data/
 baseline/mt/.idea/
 baseline/mt/work_dir*
+
+real_time_translate/data
+real_time_translate/work_dir
+
+constant_wait_k_rnn/data
+
+*.zip
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

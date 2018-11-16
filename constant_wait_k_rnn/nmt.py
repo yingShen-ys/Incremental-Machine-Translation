@@ -4,11 +4,9 @@
 A very basic implementation of neural machine translation
 
 Usage:
-    main.py pretrain --train-src=<file> --train-tgt=<file> --dev-src=<file> --dev-tgt=<file> --vocab=<file> [options]
-    main.py train --train-src=<file> --train-tgt=<file> --dev-src=<file> --dev-tgt=<file> --vocab=<file> [options]
-    main.py decode [options] VOCAB_PATH MODEL_PATH TEST_SOURCE_FILE OUTPUT_FILE
-    main.py decode [options] VOCAB_PATH MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
-    main.py test [options] VOCAB_PATH MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
+    nmt.py train --model-type=<str> --train-src=<file> --train-tgt=<file> --dev-src=<file> --dev-tgt=<file> --vocab=<file> [options]
+    nmt.py decode [options] VOCAB_PATH MODEL_PATH TEST_SOURCE_FILE OUTPUT_FILE
+    nmt.py decode [options] VOCAB_PATH MODEL_PATH TEST_SOURCE_FILE TEST_TARGET_FILE OUTPUT_FILE
 
 Options:
     -h --help                               show this screen.
@@ -37,16 +35,8 @@ Options:
     --save-to=<file>                        model save path
     --valid-niter=<int>                     perform validation after how many iterations [default: 2000]
     --dropout=<float>                       dropout [default: 0.2]
-    --hidden-rl-size=<int>                  hidden size of network model
-    --pretrain-model-path=<str>             the path to the pretrain model
-    --average-proportion-factor=<float>     the factor for average proportion
-    --consecutive-wait-factor=<float>       the factor for consecutive wait
-    --average-proportion-baseline=<float>   the baseline for average proportion
-    --consecutive-wait-baseline=<float>     the baseline for consecutive wait
     --max-decoding-time-step=<int>          maximum number of decoding time steps [default: 70]
-    --network-lr=<float>                    learning rate [default: 0.001]
-    --baseline-lr=<float>                   learning rate [default: 0.001]
-    --update-freq=<int>                     update frequency of RL agent [default: 35]
+    --wait-k=<int>                          wait k steps after decoding [default: 3]
 """
 
 import math
@@ -67,8 +57,6 @@ from utils import read_corpus, batch_iter, lstm_init_, lstm_cell_init_
 from vocab import Vocab, VocabEntry
 from model import LSTMSeq2seq
 from torch.nn.init import uniform_
-from agent import PolicyGradient
-from pdb import set_trace
 
 Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
 Tensor = torch.tensor
@@ -107,7 +95,8 @@ def compute_corpus_level_bleu_score(references: List[List[str]], hypotheses: Lis
 
     return bleu_score
 
-def pre_train(args: Dict[str, str]):
+
+def train(args: Dict[str, str]):
     train_data_src = read_corpus(args['--train-src'], source='src')
     train_data_tgt = read_corpus(args['--train-tgt'], source='tgt')
 
@@ -129,9 +118,10 @@ def pre_train(args: Dict[str, str]):
     model = LSTMSeq2seq(embedding_size=int(args['--embed-size']),
                         hidden_size=int(args['--hidden-size']),
                         dropout_rate=float(args['--dropout']),
-                        vocab=vocab)
+                        vocab=vocab, label_smooth=float(args['--ls-rate']),
+                        num_layers=int(args['--encoder-layers']),
+                        wait_k=int(args['--wait-k']))
 
-    model.set_forward_function(True)
     optimizer = torch.optim.Adam(model.parameters(), lr=float(args['--lr']))
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=float(args['--lr-decay']), patience=int(args['--patience']), verbose=True)
     optimizer_state_copy = copy.deepcopy(optimizer.state_dict())
@@ -141,7 +131,8 @@ def pre_train(args: Dict[str, str]):
         uniform_(parameter, a=-float(args['--uniform-init']), b=float(args['--uniform-init']))
 
     # carefully initialize LSTMs
-    lstm_init_(model.encoder_lstm)
+    for i in range(int(args['--encoder-layers'])):
+        lstm_cell_init_(model.encoder_lstm.layers[i])
     lstm_cell_init_(model.decoder_lstm_cell)
 
     num_trial = 0
@@ -155,6 +146,10 @@ def pre_train(args: Dict[str, str]):
         torch.LongTensor = torch.cuda.LongTensor
         model.cuda()
 
+    init_tf_rate = 1.0
+    tf_rate = init_tf_rate
+    decay_steps = len(train_data) * 3
+    min_tf_rate = 0.5
     while True:
         epoch += 1
         print(f"There are {len(train_data)//train_batch_size} batches in total.")
@@ -172,9 +167,10 @@ def pre_train(args: Dict[str, str]):
             tgt_sents = torch.LongTensor(tgt_sents)
 
             train_iter += 1
+            tf_rate = init_tf_rate - (init_tf_rate - min_tf_rate) * min(train_iter / decay_steps, 1)
 
             # (batch_size,)
-            loss = -model(src_sents, src_lens, tgt_sents, trg_lens)
+            loss = -model(src_sents, src_lens, tgt_sents, trg_lens, teacher_forcing=tf_rate)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), args['--clip-grad'])
             optimizer.step()
@@ -275,158 +271,18 @@ def pre_train(args: Dict[str, str]):
                     print('reached maximum number of epochs!', file=sys.stderr)
                     exit(0)
 
-def train(args: Dict[str, str]):
-    train_data_src = read_corpus(args['--train-src'], source='src')
-    train_data_tgt = read_corpus(args['--train-tgt'], source='tgt')
-
-    dev_data_src = read_corpus(args['--dev-src'], source='src')
-    dev_data_tgt = read_corpus(args['--dev-tgt'], source='tgt')
-
-    train_data = list(zip(train_data_src, train_data_tgt))
-    dev_data = list(zip(dev_data_src, dev_data_tgt))
-
-    train_batch_size = int(args['--batch-size'])
-    clip_grad = float(args['--clip-grad'])
-    valid_niter = int(args['--valid-niter'])
-    log_every = int(args['--log-every'])
-    model_save_path = args['--save-to']
-    lr = float(args['--lr'])
-
-    vocab = pickle.load(open(args['--vocab'], 'rb'))
-
-    agent = PolicyGradient(vocab, 
-                 int(args['--hidden-rl-size']), 
-                 int(args['--max-decoding-time-step']),
-                 args['--pretrain-model-path'],
-                 float(args['--average-proportion-factor']), 
-                 float(args['--consecutive-wait-factor']), 
-                 float(args['--average-proportion-baseline']), 
-                 float(args['--consecutive-wait-baseline']))
-
-    # torch.save(agent.model.state_dict(), "model_params.pt")
-    # model = LSTMSeq2seq(embedding_size=int(args['--embed-size']),
-    #                     hidden_size=int(args['--hidden-size']),
-    #                     dropout_rate=float(args['--dropout']),
-    #                     vocab=vocab)
-    # model.load_state_dict(agent.model.state_dict())
-    # agent.model = model
-
-    agent.model.set_forward_function(False)
-    network_optimizer = torch.optim.Adam(list(agent.network.parameters()), lr=float(args['--network-lr']))
-    baseline_optimizer = torch.optim.Adam(list(agent.baseline_network.parameters()), lr=float(args['--baseline-lr']))
-
-    network_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(network_optimizer, mode='max', factor=float(args['--lr-decay']), patience=int(args['--patience']), verbose=True)
-    network_optimizer_state_copy = copy.deepcopy(network_optimizer.state_dict())
-    baseline_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(baseline_optimizer, mode='max', factor=float(args['--lr-decay']), patience=int(args['--patience']), verbose=True)
-    baseline_optimizer_state_copy = copy.deepcopy(baseline_optimizer.state_dict())
-
-    # # uniformly initialize all parameters
-    # for parameter in agent.parameters():
-    #     uniform_(parameter, a=-float(args['--uniform-init']), b=float(args['--uniform-init']))
-
-    num_trial = 0
-    train_iter = total_network_loss = total_baseline_loss = total_rewards = 0
-    epoch = valid_num = cumulative_examples = 0
-    baseline_losses = network_losses = []
-    train_time = time.time()
-
-    total_avg_prop_rewards = total_consec_wait_rewards = total_full_bleu_rewards = total_delta_bleu_rewards = total_baseline_rewards = 0
-    print('begin Policy Gradient training')
-
-    while True:
-        epoch += 1
-        print(f"There are {len(train_data)//train_batch_size} batches in total.")
-        for src_sents, tgt_sents in batch_iter(train_data, batch_size=train_batch_size, shuffle=True):
-            tgt_words_num_to_predict = sum(len(s[1:]) for s in tgt_sents)  # omitting leading `<s>`
-            batch_size = len(src_sents)
-            agent.train()
-            src_lens = torch.LongTensor(list(map(len, src_sents)))
-            trg_lens = torch.LongTensor(list(map(len, tgt_sents)))
-
-            src_sents = pad(vocab.src.words2indices(src_sents))
-            tgt_sents = pad(vocab.tgt.words2indices(tgt_sents))
-
-            # src_sents = torch.LongTensor(src_sents).cuda()
-            src_sents = torch.LongTensor(src_sents)
-            tgt_sents = torch.LongTensor(tgt_sents)
-
-            train_iter += 1
-
-            # (batch_size,)
-            (baseline_loss, network_loss, rewards, baseline_rewards, avg_prop_rewards,
-             consec_wait_rewards, full_bleu_rewards, delta_bleu_rewards) = agent(src_sents, tgt_sents)
-            
-            # # need to check if gradients work as expected (if .detach() did the trick)
-            # (network_loss / int(args['--update-freq'])).backward(retain_graph=True)
-            # # torch.nn.utils.clip_grad_norm_(agent.network.parameters(), args['--clip-grad'])
-            # (baseline_loss / int(args['--update-freq'])).backward()
-            # # torch.nn.utils.clip_grad_norm_(agent.baseline_network.parameters(), args['--clip-grad'])
-
-            # if train_iter % int(args['--update-freq']) == 0:
-            #     network_optimizer.step()
-            #     baseline_optimizer.step()
-            #     baseline_optimizer.zero_grad()
-            #     network_optimizer.zero_grad()
-
-            network_optimizer.zero_grad()
-            network_loss.backward(retain_graph=True)
-            network_optimizer.step()
-
-            baseline_optimizer.zero_grad()
-            baseline_loss.backward()
-            baseline_optimizer.step()
-            
-            baseline_loss_value = baseline_loss.item()
-            network_loss_value = network_loss.item()
-            total_baseline_loss += baseline_loss_value
-            total_network_loss += network_loss_value
-            total_rewards += rewards
-
-            # set_trace()
-            total_avg_prop_rewards += avg_prop_rewards
-            total_consec_wait_rewards += consec_wait_rewards
-            total_full_bleu_rewards += full_bleu_rewards
-            total_delta_bleu_rewards += delta_bleu_rewards
-            total_baseline_rewards += baseline_rewards
-
-            if train_iter % valid_niter == 0:
-                cumulative_examples += valid_niter
-                agent.eval()
-                print('epoch %d, iter %d, cum. total baseline loss %.2f, total network loss %.2f, total rewards %.2f, cum. examples %d , time elapsed %.2f sec' %
-                                                                                        (epoch, train_iter,
-                                                                                         total_baseline_loss / valid_niter,
-                                                                                         total_network_loss / valid_niter,
-                                                                                         total_rewards / valid_niter,
-                                                                                         cumulative_examples,
-                                                                                         time.time() - train_time), file=sys.stderr)
-                
-                print('reward breakdown: AP {0:.2f}, CW {1:.2f}, FB {2:.2f}, DB {3:.2f}, baseline {4:.2f}'
-                    .format(total_avg_prop_rewards / valid_niter, total_consec_wait_rewards / valid_niter, \
-                        total_full_bleu_rewards * 100 / valid_niter, total_delta_bleu_rewards * 100 / valid_niter, total_baseline_rewards / valid_niter))
-
-                # set_trace()
-                total_network_loss = total_baseline_loss = total_rewards = 0.
-                total_avg_prop_rewards = total_consec_wait_rewards = total_full_bleu_rewards = total_delta_bleu_rewards = total_baseline_rewards = 0
-                train_time = time.time()
-                valid_num += 1
-                torch.save(agent, model_save_path + str(train_iter))
-
-            if epoch == int(args['--max-epoch']):
-                print('reached maximum number of epochs!', file=sys.stderr)
-                exit(0)
 
 def beam_search(model: object, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int, vocab: Vocab, cuda: str) -> List[List[Hypothesis]]:
     was_training = model.training
 
     model.to('cuda')
     hypotheses = []
-    print("BEAM SEARCH IS REPLACED BY GREEDY SEARCH")
     for src_sent in tqdm(test_data_src, desc='Decoding', file=sys.stdout):
         src_sent = [src_sent] # other parts of the code treat this as a list of sentences...
         src_len = torch.LongTensor(list(map(len, src_sent))).to('cuda')
         src_sent = pad(vocab.src.words2indices(src_sent))
         src_sent = torch.LongTensor(src_sent).to('cuda')
-        example_hyps = model.greedy_search(src_sent, src_lens=src_len, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step, cuda=cuda)
+        example_hyps = model.beam_search(src_sent, src_lens=src_len, beam_size=beam_size, max_decoding_time_step=max_decoding_time_step, cuda=cuda)
 
         hypotheses.append(example_hyps)
 
@@ -448,6 +304,7 @@ def greedy_search(model: object, test_data_src: List[List[str]], beam_size: int,
         hypotheses.append(example_hyps)
 
     return hypotheses
+
 
 def decode(args: Dict[str, str]):
     """
@@ -479,15 +336,6 @@ def decode(args: Dict[str, str]):
             hyp_sent = ' '.join(top_hyp.value)
             f.write(hyp_sent + '\n')
 
-def test(args: Dict[str, str]):
-    test_data_src = read_corpus(args['TEST_SOURCE_FILE'], source='src')
-    test_data_tgt = read_corpus(args['TEST_TARGET_FILE'], source='tgt')
-
-    test_data = list(zip(test_data_src, test_data_tgt))[:100]
-
-    print(f"load model from {args['MODEL_PATH']}", file=sys.stderr)
-    model = torch.load(args['MODEL_PATH'])
-    model.test_greedy(test_data, args['OUTPUT_FILE'])
 
 def main():
     args = docopt(__doc__)
@@ -500,14 +348,10 @@ def main():
     if args['--cuda']:
         torch.cuda.manual_seed_all(seed * 13 // 7)
 
-    if args['pretrain']:
-        pre_train(args)
     if args['train']:
         train(args)
     elif args['decode']:
         decode(args)
-    elif args['test']:
-        test(args)
     else:
         raise RuntimeError(f'invalid mode')
 

@@ -8,7 +8,7 @@ import pickle
 from pdb import set_trace
 from tqdm import tqdm
 from model import LSTMSeq2seq
-from bleu import sentence_bleu, corpus_bleu
+from bleu import sentence_bleu, corpus_bleu, SmoothingFunction
 from utils import batch_iter
 from utils import read_corpus, batch_iter, lstm_init_, lstm_cell_init_
 
@@ -82,9 +82,9 @@ class Network(nn.Module):
 
     def forward(self, observation):
         state = self.rnn(observation, self.prev_state)
-        actions = self.softmax(self.linear(state))
+        action_logits = self.linear(state)
         self.prev_state = state
-        return actions
+        return action_logits
     
     def reset_state(self):
         self.prev_state = torch.zeros(1, self.output_size)
@@ -121,6 +121,13 @@ class PolicyGradient(nn.Module):
         self.average_proportion_baseline = average_proportion_baseline
         self.consecutive_wait_baseline = consecutive_wait_baseline
         self.pretrain_model_path = pretrain_model_path
+        self.last_rewards = []
+        self.last_actions = []
+        self.last_action_probs = []
+        self.last_decoding_tokens = []
+        self.action_softmax = nn.Softmax(dim=1)
+        self.smoothing_function = SmoothingFunction().method1
+
         for param in self.model.parameters():
             param.requires_grad = False
 
@@ -137,10 +144,10 @@ class PolicyGradient(nn.Module):
             own_state[name].copy_(param)
 
     def compute_full_BLEU(self, golden, prediction):
-        return sentence_bleu(golden, prediction)[1]
+        return sentence_bleu(golden, prediction, smoothing_function = self.smoothing_function)[1]
 
     def compute_partial_BLEU(self, golden, prediction):
-        return sentence_bleu(golden, prediction)[0]
+        return sentence_bleu(golden, prediction, smoothing_function = self.smoothing_function)[0]
 
     def test_pretrained(self, args):
         test_data_src = read_corpus(args['TEST_SOURCE_FILE'], source='src')
@@ -181,6 +188,7 @@ class PolicyGradient(nn.Module):
         self.model.eval()
         self.network.reset_state()
         tgt = tgt.data.numpy().tolist()
+        tgt[0] = tgt[0][1:-1]
         batch_lens = 1 # curr READ index
         decoding_steps = 0 # curr WRITE index
         is_ending = False
@@ -197,122 +205,70 @@ class PolicyGradient(nn.Module):
         average_proportions = 0
         last_write = 0
         actions = []
-        action_probs = []
+        action_logits = []
 
         # placeholders for some intermediate values for better debugging
         consec_wait_rewards = []
         delta_bleu_rewards = []
-
-        real_model = torch.load(self.pretrain_model_path).to('cpu')
-
 
         # variables related to consecutive wait length
         consecutive_waits = 0
         t = 0
         while not is_ending:
             rewards.append(torch.zeros(1))
-            # set_trace()
-            # context_vector, h, prd_token = self.model(src, torch.LongTensor([batch_lens]).cuda(), \
-            #                                                                         torch.LongTensor([output_tokens[-1]]).cuda(), last_context_vector)
             context_vector, decoder_state, prd_token = self.model(src, torch.LongTensor([batch_lens]), \
-                                                torch.LongTensor([tgt[0][len(output_tokens) - 1]]), last_context_vector, last_decoder_state)
+                                                                torch.LongTensor([output_tokens[-1]]), last_context_vector, last_decoder_state)
 
-
-            # partial_tgt = torch.LongTensor([tgt[0][:max(len(output_tokens), 2)]])
-            # true_tokens = self.model.forward_true(src, torch.LongTensor([batch_lens]), partial_tgt)
-
-            args = {
-                'TEST_SOURCE_FILE': "data/test.de-en.de",
-                'TEST_TARGET_FILE': "data/test.de-en.en",
-                'MODEL_PATH': "work_dir_no_batch/model.bin",
-                'VOCAB_PATH': "data/vocab.bin",
-                'OUTPUT_FILE': "temp_eval.txt"
-            }
-
-
-            luck = self.model.greedy_search(src, torch.LongTensor([batch_lens]), cuda=False)
             prd_embedding = self.model.trg_embedding(prd_token)
+            last_context_vector = context_vector
             # context_vector: B x batch_lens x hidden_size
             # h: B x batch_lens x hidden_size
             # prd_embedding: B x batch_lens x embedding_size
             # steps: 
             # 1. compute actions
             observation = torch.cat([context_vector, decoder_state[0], prd_embedding], dim = 1)
-            # observations.append(observation.cpu())
-            # action_prob = self.network(observation).cpu()
-            observations.append(observation)
-            action_prob = self.network(observation)
-            action_probs.append(action_prob)
+            # observations.append(observation)
+            action_logit = self.network(observation)
+            # action_logits.append(action_logit)
+
+            if torch.any(torch.isnan(action_logit)):
+                set_trace()
             
+            action_prob = self.action_softmax(action_logit)
             m = torch.distributions.Categorical(action_prob)
             action = m.sample()
-            actions.append(action.item())
+            # actions.append(action.item())
 
-
-            ######################################
-            #                                    #
-            #        FAKE RL AGENT, SO LAME      #
-            #                                    #
-            ######################################
-
-            if batch_lens <= len(src[0])-1:
+            # 2. For READ, increment batch_lens
+            #    For WRITE, increment decoding_steps
+            if action.item() == 0:
+                # READ operations:
+                # 1. increment batch_lens
                 batch_lens += 1
+                # 2.update
                 consecutive_waits += 1
                 # 3. set ending flag for reading the next token of </s>
+                if batch_lens == len(src[0]) + 1:
+                    # is_ending = True
+                    batch_lens = len(src[0])
+                    rewards.pop()
+                    continue
             else:
-                # set_trace()
                 # WRITE operations:
                 # 1. increment decoding steps, write to output buffer
                 decoding_steps += 1
                 output_tokens.append(prd_token.item())
                 last_decoder_state = decoder_state
-                last_context_vector = context_vector
                 # 2. update average proportions
                 average_proportions += t - last_write
                 last_write = t
-
+                
                 # 3. update consecutive wait length
                 consecutive_waits = 0
-
+                
                 # 4. set ending flags for predicting </s>
-                if prd_token.item() == 2 or len(output_tokens) >= min(self.max_decoding_step, len(tgt[0])):
+                if prd_token.item() == 2 or len(output_tokens) >= self.max_decoding_step:
                     is_ending = True
-
-
-            ######################################
-            #                                    #
-            #           REAL RL, NO BS           #
-            #                                    #
-            ######################################
-
-
-            # # 2. For READ, increment batch_lens
-            # #    For WRITE, increment decoding_steps
-            # if action.item() == 0:
-            #     # READ operations:
-            #     # 1. increment batch_lens
-            #     batch_lens += 1
-            #     # 2.update
-            #     consecutive_waits += 1
-            #     # 3. set ending flag for reading the next token of </s>
-            #     if batch_lens == len(src[0]) + 1:
-            #         is_ending = True
-            # else:
-            #     # WRITE operations:
-            #     # 1. increment decoding steps, write to output buffer
-            #     decoding_steps += 1
-            #     output_tokens.append(prd_token.item())
-            #     last_decoder_state = decoder_state
-            #     # 2. update average proportions
-            #     average_proportions += t - last_write
-            #     last_write = t
-                
-            #     # 3. update consecutive wait length
-            #     consecutive_waits = 0
-                
-            #     # 4. set ending flags for predicting </s>
-            #     if prd_token.item() == 2 or len(output_tokens) >= self.max_decoding_step:
-            #         is_ending = True
 
             # compute rewards
             if is_ending:
@@ -322,24 +278,45 @@ class PolicyGradient(nn.Module):
                 # compute BLEU score
                 # skip read_indices
                 # print("full score:", self.compute_full_BLEU(tgt, output_tokens))
-                full_bleu = self.compute_full_BLEU(tgt, output_tokens)
-                # rewards[t] += full_bleu
+                if len(output_tokens) > 1:
+                    full_bleu = self.compute_full_BLEU(tgt, output_tokens[1:])
+                    
+                    print("output_tokens idx:", output_tokens, file=sys.stderr)
+                    print("tgt idx:", tgt, file=sys.stderr)
+                    print("output_tokens:", [self.vocab.tgt.id2word.get(output_tokens[i], 'OOV---') for i in range(len(output_tokens[1:]))], file=sys.stderr)
+                    print("tgt:", [self.vocab.tgt.id2word.get(tgt[0][i], 'OOV---') for i in range(len(tgt[0]))], file=sys.stderr)
+                    print("full bleu:", full_bleu, file=sys.stderr)
+                    print("action sequences:", actions, file=sys.stderr)
+                    print("", file=sys.stderr)
+                else:
+                    full_bleu = 0
             else:
                 # compute BLEU score
-                # print("partial score:", self.compute_partial_BLEU(tgt, output_tokens))
-                bleu_score = self.compute_partial_BLEU(tgt, output_tokens)
+                if len(output_tokens) > 1:
+                    bleu_score = self.compute_partial_BLEU(tgt, output_tokens[1:])
+                else:
+                    bleu_score = 0
                 delta_bleu = (bleu_score - last_bleu_score)
                 rewards[t] += delta_bleu
                 delta_bleu_rewards.append(delta_bleu)
                 last_bleu_score = bleu_score
 
             # sgn(cw - self.cw) + 1 = (2 * int(cw > self.cw) - 1) + 1
+            observations.append(observation)
+            action_logits.append(action_logit)
+            actions.append(action.item())
+
             consec_wait_reward = self.consecutive_wait_factor * int(consecutive_waits > self.consecutive_wait_baseline) * 2
             rewards[t] += consec_wait_reward
             consec_wait_rewards.append(consec_wait_reward)
 
             # update time step
             t += 1
+
+            self.last_rewards = rewards
+            self.last_actions = actions
+            self.last_action_probs = action_logits
+            self.last_decoding_tokens = output_tokens
 
         # compute accumulative rewards
         for i in range(1, len(rewards)):
@@ -353,15 +330,12 @@ class PolicyGradient(nn.Module):
         for i in range(1, len(delta_bleu_rewards)):
             delta_bleu_rewards[i] *= self.discount_factor ** i # discount
 
-        # set_trace()
         rewards = torch.cat(rewards)
         baseline_rewards = self.baseline_network(torch.cat(observations, dim=0))
         baseline_loss = self.baseline_network_loss(baseline_rewards, rewards)
         new_rewards = rewards - baseline_rewards # .detach() # detach policy gradients from baseline
-        # set_trace()
-        network_loss = self.network_loss(torch.cat(action_probs), torch.tensor(actions), new_rewards)
+        network_loss = self.network_loss(torch.cat(action_logits), torch.tensor(actions), new_rewards)
 
-        # set_trace()
         if not isTest:
             return baseline_loss, network_loss, torch.sum(new_rewards), torch.sum(baseline_rewards), avg_prop_reward, sum(consec_wait_rewards), full_bleu, sum(delta_bleu_rewards)
 
