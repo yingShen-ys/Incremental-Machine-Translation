@@ -464,12 +464,15 @@ class LSTMSeq2seq(nn.Module):
         return context_vector
 
     @staticmethod
-    def load(model_path):
+    def load(model_path, use_gpu=True):
         """
         Load a pre-trained model
 
         Returns:
             model: the loaded model
         """
-        model = torch.load(model_path)
+        if use_gpu:
+            model = torch.load(model_path)
+        else:
+            model = torch.load(model_path, map_location='cpu')
         return model

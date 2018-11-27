@@ -13,6 +13,7 @@ constant_wait_k_rnn/data
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
+*.pyc
 *$py.class
 
 # C extensions
