@@ -103,9 +103,9 @@ This document contains the weekly updates on the incremental machine translation
 
 | Member  | Upcoming Tasks                                               | Completed Tasks |
 | ------- | ------------------------------------------------------------ | --------------- |
-| Ying    | Implementing incremental neural machine translation mode     |                 |
-| Zhun    | Debugging the reinforcement learning agent                   |                 |
-| Kangyan | Implementing another incremental neural machine translation model. |                |
+| Ying    | Implementing incremental neural machine translation mode     | Implemented and tested incremental translation in different latency conditions |
+| Zhun    | Debugging the reinforcement learning agent                   | Removed bugs from RL model but found it to be not practical to use |
+| Kangyan | Implementing another incremental neural machine translation model. | Implemented another incremental neural machine translation model.               |
 
 ### Nov 21, 2018 - Nov 28, 2018
 
@@ -113,4 +113,4 @@ This document contains the weekly updates on the incremental machine translation
 | ------- | ------------------------------------------------------------ | --------------- |
 | Ying    | Running incremental neural machine translation with rewritten data.     |                 |
 | Zhun    | Debugging the reinforcement learning agent.                   |                 |
-| Kangyan | Working on system combination with Xinjian. | Implemented another incremental neural machine translation model.               |
+| Kangyan | Working on system combination with Xinjian. |                |
