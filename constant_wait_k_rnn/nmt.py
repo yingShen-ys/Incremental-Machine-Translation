@@ -318,7 +318,7 @@ def decode(args: Dict[str, str]):
 
     print(f"load model from {args['MODEL_PATH']}", file=sys.stderr)
     model = LSTMSeq2seq.load(args['MODEL_PATH'])
-
+    model.wait_k = int(args['--wait-k'])
     vocab = pickle.load(open(args['VOCAB_PATH'], 'rb'))
     hypotheses = beam_search(model, test_data_src,
                              beam_size=int(args['--beam-size']),
