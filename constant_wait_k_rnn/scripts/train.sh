@@ -1,12 +1,15 @@
-vocab="data/vocab.bin"
-train_src="data/train.de-en.de.wmixerprep"
-train_tgt="data/train.de-en.en.wmixerprep"
-dev_src="data/valid.de-en.de"
-dev_tgt="data/valid.de-en.en"
-test_src="data/test.de-en.de"
-test_tgt="data/test.de-en.en"
+data_dir=$1
+k=$2
+vocab="data/${data_dir}/vocab.bin"
+train_src="data/${data_dir}/train.ja"
+train_tgt="data/${data_dir}/train.en"
+dev_src="data/${data_dir}/val.ja"
+dev_tgt="data/${data_dir}/val.en"
+test_src="data/${data_dir}/test.ja"
+test_tgt="data/${data_dir}/test.en"
 
-work_dir="work_dir"
+work_dir="work_dir_${k}"
+
 
 mkdir -p ${work_dir}
 echo save results to ${work_dir}
@@ -29,4 +32,5 @@ python nmt.py \
     --uniform-init 0.1 \
     --dropout 0.2 \
     --clip-grad 5.0 \
-    --lr-decay 0.5 2>${work_dir}/err.log
+    --lr-decay 0.5 2>${work_dir}/err.log \
+    --wait-k ${k}
