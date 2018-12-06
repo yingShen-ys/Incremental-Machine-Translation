@@ -1,25 +1,25 @@
 #!/bin/sh
+data_dir=$1
+k=$2
+test_k=$3
+vocab="data/${data_dir}/vocab.bin"
+train_src="data/${data_dir}/train.ja"
+train_tgt="data/${data_dir}/train.en"
+dev_src="data/${data_dir}/val.ja"
+dev_tgt="data/${data_dir}/val.en"
+test_src="data/${data_dir}/test.ja"
+test_tgt="data/${data_dir}/test.en"
 
-vocab="data/vocab.bin"
-train_src="data/train.de-en.de.wmixerprep"
-train_tgt="data/train.de-en.en.wmixerprep"
-dev_src="data/valid.de-en.de"
-dev_tgt="data/valid.de-en.en"
-test_src="data/test.de-en.de"
-test_tgt="data/test.de-en.en"
+work_dir="work_dir_${k}"
 
-
-model_dir="/media/bighdd5/zhun/mt/assignment1/work_dir_tfa_drop_if_ls9_big"
-work_dir="work_dir"
-
-python nmt_mk_iii.py \
+python nmt.py \
     decode \
     --beam-size 5 \
     --max-decoding-time-step 100 \
     ${vocab} \
-    ${model_dir}/model.bin \
+    ${work_dir}/model.bin \
     ${test_src} \
-    ${work_dir}/decode.txt
+    ${work_dir}/decode_${test_k}.txt
+    --wait-k ${test_k}
 
-
-perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode.txt
+perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode_${test_k}.txt
