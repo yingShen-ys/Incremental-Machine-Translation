@@ -114,3 +114,11 @@ This document contains the weekly updates on the incremental machine translation
 | Ying    | Running incremental neural machine translation with rewritten data.     |                 |
 | Zhun    | Debugging the reinforcement learning agent.                   |                 |
 | Kangyan | Working on system combination with Xinjian. |                |
+
+### Nov 21, 2018 - Nov 28, 2018
+
+| Member  | Upcoming Tasks                                               | Completed Tasks |
+| ------- | ------------------------------------------------------------ | --------------- |
+| Ying    | Working on presentation and report.     |                 |
+| Zhun    | Working on presentation and report.                   |                 |
+| Kangyan | Working on system combination with Xinjian. |                |
