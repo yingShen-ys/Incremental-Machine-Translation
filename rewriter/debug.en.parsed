@@ -1,0 +1,12 @@
+President Clinton had won 206 of the 270 Electoral College votes needed to win the presidency after polls closed in 28 states , ABC news reported on Tuesday .
+
+(ROOT (S (S (NP (NNP President) (NNP Clinton)) (VP (VBD had) (VP (VBN won) (NP (NP (CD 206)) (PP (IN of) (NP (NP (DT the) (CD 270) (NNP Electoral) (NNP College) (NNS votes)) (VP (VBN needed) (S (VP (TO to) (VP (VB win) (NP (DT the) (NN presidency)) (SBAR (IN after) (S (NP (NNS polls)) (VP (VBD closed) (PP (IN in) (NP (CD 28) (NNS states)))))))))))))))) (, ,) (NP (NNP ABC) (NN news)) (VP (VBD reported) (PP (IN on) (NP (NNP Tuesday)))) (. .)))
+U.S. laws restrict the export of high-tech computers that could be used for military purposes .
+
+(ROOT (S (NP (NNP U.S.) (NNS laws)) (VP (VBP restrict) (NP (NP (DT the) (NN export)) (PP (IN of) (NP (JJ high-tech) (NNS computers))) (SBAR (WHNP (WDT that)) (S (VP (MD could) (VP (VB be) (VP (VBN used) (PP (IN for) (NP (JJ military) (NNS purposes)))))))))) (. .)))
+the International Monetary Fund warned Thailand on Wednesday of potential risks to its banking system .
+
+(ROOT (S (NP (DT the) (NNP International) (NNP Monetary) (NNP Fund)) (VP (VBD warned) (NP (NNP Thailand)) (PP (IN on) (NP (NP (NNP Wednesday)) (PP (IN of) (NP (JJ potential) (NNS risks))))) (PP (TO to) (NP (PRP$ its) (NN banking) (NN system)))) (. .)))
+the private Karachi Cotton Association also welcomed the government 's decision to allow import of cotton from India .
+
+(ROOT (S (NP (DT the) (JJ private) (NNP Karachi) (NNP Cotton) (NNP Association)) (ADVP (RB also)) (VP (VBD welcomed) (NP (NP (DT the) (NN government) (POS 's)) (NN decision) (S (VP (TO to) (VP (VB allow) (NP (NP (NN import)) (PP (IN of) (NP (NN cotton)))) (PP (IN from) (NP (NNP India)))))))) (. .)))

@@ -1,0 +1,9 @@
+Input:
+    A text file containing parsed sentences.
+    See debug.en.parsed for an example.
+    parse.sh was used to parse sentences.
+
+Rules are applied in a given order.
+A rule may not be applicable, e.g. if the input sentence does not contain an object, then it cannot be passivized.
+
+python test_rewrite.py --filename debug.en.parsed
