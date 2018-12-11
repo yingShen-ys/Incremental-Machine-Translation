@@ -12,14 +12,17 @@ test_tgt="data/${data_dir}/test.en"
 
 work_dir="work_dir_${k}"
 
-python nmt.py \
-    decode \
-    --beam-size 5 \
-    --max-decoding-time-step 100 \
-    ${vocab} \
-    ${work_dir}/model.bin \
-    ${test_src} \
-    ${work_dir}/decode_${test_k}.txt
-    --wait-k ${test_k}
-
+for test_k in {1..16}
+do
+    echo ${test_k}
+    python nmt.py \
+        decode \
+        --beam-size 5 \
+        --max-decoding-time-step 100 \
+        ${vocab} \
+        ${work_dir}/model.bin \
+        ${test_src} \
+        ${work_dir}/decode_${test_k}.txt \
+        --wait-k ${test_k}
+done
 perl multi-bleu.perl ${test_tgt} < ${work_dir}/decode_${test_k}.txt
