@@ -272,14 +272,14 @@ class LSTMSeq2seq(nn.Module):
         bk_pointers = [[-1]]
 
         src_states, final_state = self.encode(src_sent, src_lens)  # (1, src_lens, hidden)
-
         # decode start token
         start_token = src_sent.new_ones((1,)).long() * START_TOKEN_IDX  # (batch_size,) should be </s>
         vector = self.trg_embedding(start_token)  # (batch_size, embedding_size)
         vector = torch.cat((vector, vector.new_zeros(vector.size(0), self.state_size // self.num_layers)),
                            dim=-1)  # input feeding at first step
         h, c = self.decoder_lstm_cell(vector, final_state)
-        context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states, src_lens,
+        
+        context_vector = self.dropout(LSTMSeq2seq.compute_attention(h, src_states[:, :self.wait_k, :], src_lens,
                                                                     attn_func=self.attn_func))  # (batch_size, hidden_size (*2))
         curr_attn_vector = self.dropout(
             self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1)))  # the thing to feed in input feeding
@@ -291,7 +291,7 @@ class LSTMSeq2seq(nn.Module):
         best_score_ids = best_score_ids - bk_pointer * self.trg_vocab_size
         decoded_beam_idx.append(best_score_ids)
         _, prd_token = torch.max(curr_ll, dim=-1)
-
+        
         # expand h, c, src_states, curr_attn_vector for next beam_size tokens: (batch, ) -> (batch * beam_size, )
         h = h.data.repeat(1, beam_size).view(-1, h.size(-1))
         c = c.data.repeat(1, beam_size).view(-1, c.size(-1))
@@ -316,7 +316,7 @@ class LSTMSeq2seq(nn.Module):
             h, c = self.decoder_lstm_cell(vectors, (h, c))
 
             context_vector = self.dropout(
-                LSTMSeq2seq.compute_attention(h, src_states_tmp, src_lens, attn_func=self.attn_func))
+                LSTMSeq2seq.compute_attention(h, src_states_tmp[:, :self.wait_k + t, :], src_lens, attn_func=self.attn_func))
 
             curr_attn_vector = self.dropout(
                 self.decoder_hidden_layer(torch.cat((h, context_vector), dim=-1)))  # the thing to feed in input feeding
@@ -361,7 +361,7 @@ class LSTMSeq2seq(nn.Module):
             curr_attn_vector = curr_attn_vector[prev_id]
             c = c[prev_id]
             src_states_tmp = src_states[:survived_size, :, :]
-
+            
             assert survived_id.size()[0] == h.size()[0]
 
         # sort finished score and finished pos
